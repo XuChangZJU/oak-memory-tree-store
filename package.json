@@ -10,7 +10,8 @@
     "scripts": {
         "pretest": "ts-node test/build-app-domain",
         "test": "ts-node test/test.ts",
-        "build": "tsc"
+        "build": "tsc",
+        "postinstall": "npm link oak-domain"        
     },
     "main": "src/index",
     "devDependencies": {
