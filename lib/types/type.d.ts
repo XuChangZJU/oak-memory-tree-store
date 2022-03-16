@@ -1,13 +1,13 @@
 import { NodeId } from "oak-domain/lib/types/Demand";
 import { EntityShape } from "oak-domain/src/types/Entity";
-export declare type RowNode<SH extends EntityShape = EntityShape> = {
+export declare type RowNode = {
     $uuid?: string;
-    $next?: Partial<SH> | null;
-    $current?: SH | null;
-    $nextNode?: RowNode<SH>;
+    $next?: Partial<EntityShape> | null;
+    $current?: EntityShape | null;
+    $nextNode?: RowNode;
     $path?: string;
 };
-export declare type NodeDict<SH extends EntityShape = EntityShape> = {
-    [K in NodeId]: SH;
+export declare type NodeDict = {
+    [K in NodeId]: EntityShape;
 };
-export declare type ExprResolveFn<SH extends EntityShape = EntityShape> = (nodeDict: NodeDict<SH>) => ExprResolveFn<SH> | any;
+export declare type ExprResolveFn = (nodeDict: NodeDict) => ExprResolveFn | any;

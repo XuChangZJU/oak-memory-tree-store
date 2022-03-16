@@ -1,26 +1,28 @@
 import assert from 'assert';
 import { v4 } from 'uuid';
 import { Context as ContextInterface } from 'oak-domain/lib/types/Context';
-import { EntityDef, EntityShape } from 'oak-domain/lib/types/Entity';
+import { EntityDef, EntityShape, OperationResult } from 'oak-domain/lib/types/Entity';
 import TreeStore from './store';
 
-export class Context<E extends string, ED extends {
-    [K in E]: EntityDef<E, ED, K, SH>;
-}, SH extends EntityShape = EntityShape> implements ContextInterface<E, ED, SH> {
-    rowStore: TreeStore<E, ED, SH>;
+export class Context<ED extends {
+    [E: string]: EntityDef;
+}> implements ContextInterface<ED> {
+    rowStore: TreeStore<ED>;
     uuid?: string;
+    result?: OperationResult<ED>;
 
-    constructor(store: TreeStore<E, ED, SH>) {
+    constructor(store: TreeStore<ED>) {
         this.rowStore = store;
     }
 
-    on(event: 'commit' | 'rollback', callback: (context: ContextInterface<E, ED, SH>) => Promise<void>): void {
+    on(event: 'commit' | 'rollback', callback: (context: ContextInterface<ED>) => Promise<void>): void {
     }
 
     async begin(options?: object): Promise<void> {
         assert(!this.uuid);
         this.uuid = v4();
         this.rowStore.begin(this.uuid);
+        this.result = {};
     }
     async commit(): Promise<void> {
         assert(this.uuid);

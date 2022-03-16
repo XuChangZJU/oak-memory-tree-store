@@ -1,26 +1,41 @@
-import { EntityDef, SelectionResult, DeduceCreateSingleOperation, DeduceSelection, EntityShape, DeduceRemoveOperation, DeduceUpdateOperation } from "oak-domain/lib/types/Entity";
+import { EntityDef, SelectionResult, DeduceCreateSingleOperation, DeduceRemoveOperation, DeduceUpdateOperation } from "oak-domain/lib/types/Entity";
 import { CascadeStore } from 'oak-domain/lib/schema/CascadeStore';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
 import { Context } from "./context";
 import { NodeDict, RowNode } from "./types/type";
-export default class TreeStore<E extends string, ED extends {
-    [K in E]: EntityDef<E, ED, K, SH>;
-}, SH extends EntityShape = EntityShape> extends CascadeStore<E, ED, SH> {
+export default class TreeStore<ED extends {
+    [E: string]: EntityDef;
+}> extends CascadeStore<ED> {
+    countextends: any;
     store: {
-        [T in E]?: {
-            [ID: string]: RowNode<SH>;
+        [T in keyof ED]?: {
+            [ID: string]: RowNode;
         };
     };
     immutable: boolean;
     activeTxnDict: {
         [T: string]: {
-            nodeHeader?: RowNode<SH>;
+            nodeHeader?: RowNode;
             create: number;
             update: number;
             remove: number;
         };
     };
-    constructor(storageSchema: StorageSchema, immutable?: boolean);
+    setInitialData(data: {
+        [T in keyof ED]?: {
+            [ID: string]: ED[T]['OpSchema'];
+        };
+    }): void;
+    getCurrentData(): {
+        [T in keyof ED]?: {
+            [ID: string]: ED[T]['OpSchema'];
+        };
+    };
+    constructor(storageSchema: StorageSchema<ED>, immutable?: boolean, initialData?: {
+        [T in keyof ED]?: {
+            [ID: string]: ED[T]['OpSchema'];
+        };
+    });
     private constructRow;
     private translateLogicFilter;
     /**
@@ -41,14 +56,14 @@ export default class TreeStore<E extends string, ED extends {
     private translateAttribute;
     private translateFilter;
     private translateSorter;
-    protected selectAbjointRow<T extends E>(entity: T, selection: Omit<ED[T]['Selection'], 'indexFrom' | 'count' | 'data' | 'sorter'>, context: Context<E, ED, SH>, params?: Object): Promise<SelectionResult<E, ED, T, SH>>;
-    protected updateAbjointRow<T extends E>(entity: T, operation: DeduceCreateSingleOperation<E, ED, T, SH> | DeduceUpdateOperation<E, ED, T, SH> | DeduceRemoveOperation<E, ED, T, SH>, context: Context<E, ED, SH>, params?: Object): Promise<void>;
+    protected selectAbjointRow<T extends keyof ED>(entity: T, selection: Omit<ED[T]['Selection'], 'indexFrom' | 'count' | 'data' | 'sorter'>, context: Context<ED>, params?: Object): Promise<SelectionResult<ED, T>>;
+    protected updateAbjointRow<T extends keyof ED>(entity: T, operation: DeduceCreateSingleOperation<ED[T]['Schema']> | DeduceUpdateOperation<ED[T]['Schema']> | DeduceRemoveOperation<ED[T]['Schema']>, context: Context<ED>, params?: Object): Promise<void>;
     private doOperation;
-    operate<T extends E>(entity: T, operation: ED[T]['Operation'], context: Context<E, ED, SH>, params?: Object): Promise<void>;
-    protected formProjection<T extends E>(entity: T, row: ED[T]['Schema'], data: DeduceSelection<E, ED, T, SH>['data'], result: Partial<ED[T]['Schema']>, nodeDict: NodeDict<SH>, context: Context<E, ED, SH>): Promise<void>;
+    operate<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Context<ED>, params?: Object): Promise<void>;
+    protected formProjection<T extends keyof ED>(entity: T, row: ED[T]['Schema'], data: ED[T]['Selection']['data'], result: Partial<ED[T]['Schema']>, nodeDict: NodeDict, context: Context<ED>): Promise<void>;
     private formResult;
-    select<T extends E>(entity: T, selection: ED[T]['Selection'], context: Context<E, ED, SH>, params?: Object): Promise<SelectionResult<E, ED, T, SH>>;
-    countRow<T extends E>(entity: T, selection: Omit<ED[T]['Selection'], "action" | "data" | "sorter">, context: Context<E, ED, SH>, params?: Object): Promise<number>;
+    select<T extends keyof ED>(entity: T, selection: ED[T]['Selection'], context: Context<ED>, params?: Object): Promise<SelectionResult<ED, T>>;
+    count<T extends keyof ED>(entity: T, selection: Omit<ED[T]['Selection'], "action" | "data" | "sorter">, context: Context<ED>, params?: Object): Promise<number>;
     private addToTxnNode;
     begin(uuid: string): void;
     commit(uuid: string): void;
