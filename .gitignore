@@ -65,3 +65,5 @@ typings/
 build
 package-lock.json
 dist
+
+test/app-domain

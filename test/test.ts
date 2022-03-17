@@ -1,7 +1,7 @@
 import { v4 } from 'uuid';
 import { describe, it } from 'mocha';
 import TreeStore from '../src/store';
-import EntityDict from './app-domain/EntityDict';
+import { EntityDict } from './app-domain/EntityDict';
 import { Context } from '../src/context';
 import { storageSchema } from './app-domain/Storage';
 import assert from 'assert';
@@ -10,9 +10,9 @@ describe('基础测试', function () {
     this.timeout(1000000);
 
     it('[1.0]简单查询', async () => {
-        const store = new TreeStore<keyof EntityDict, EntityDict>(storageSchema);
+        const store = new TreeStore<EntityDict>(storageSchema);
         const context = new Context(store);
-        await store.operate('application', {
+        const created = await store.operate('application', {
             action: 'create',
             data: [{
                 id: 'aaa',
@@ -45,6 +45,8 @@ describe('基础测试', function () {
             }]
         }, context);
 
+        console.log(created);
+
         const applications = await store.select('application', {
             data: {
                 id: 1,
@@ -70,7 +72,7 @@ describe('基础测试', function () {
     });
 
     it('[1.1]子查询', async () => {
-        const store = new TreeStore<keyof EntityDict, EntityDict>(storageSchema);
+        const store = new TreeStore<EntityDict>(storageSchema);
         const context = new Context(store);
 
         await store.operate('user', {
@@ -108,11 +110,11 @@ describe('基础测试', function () {
             },
         }, context);
         // console.log(rows);
-        assert(rows.length === 0);
+        assert(rows.result.length === 0);
     });
 
     it('[1.2]行内属性上的表达式', async () => {
-        const store = new TreeStore<keyof EntityDict, EntityDict>(storageSchema);
+        const store = new TreeStore<EntityDict>(storageSchema);
         const context = new Context(store);
 
         await store.operate('user', {
@@ -146,7 +148,7 @@ describe('基础测试', function () {
     });
 
     it('[1.3]跨filter结点的表达式', async () => {
-        const store = new TreeStore<keyof EntityDict, EntityDict>(storageSchema);
+        const store = new TreeStore<EntityDict>(storageSchema);
         const context = new Context(store);
 
         await store.operate('application', {
@@ -224,7 +226,7 @@ describe('基础测试', function () {
 
 
     it('[1.4]跨filter子查询的表达式', async () => {
-        const store = new TreeStore<keyof EntityDict, EntityDict>(storageSchema);
+        const store = new TreeStore<EntityDict>(storageSchema);
         const context = new Context(store);
 
         await store.operate('application', {
@@ -299,7 +301,7 @@ describe('基础测试', function () {
                 }
             ]
         }, context);
-        assert(systems.length === 1 && systems[0].id === 'bbb');
+        assert(systems.result.length === 1 && systems.result[0].id === 'bbb');
         systems = await store.select('system', {
             data: {
                 id: 1,
@@ -338,11 +340,11 @@ describe('基础测试', function () {
                 }
             ]
         }, context);
-        assert(systems.length === 1 && systems[0].id === 'ccc');
+        assert(systems.result.length === 1 && systems.result[0].id === 'ccc');
     });
 
     it('[1.5]projection中的跨结点表达式', async () => {
-        const store = new TreeStore<keyof EntityDict, EntityDict>(storageSchema);
+        const store = new TreeStore<EntityDict>(storageSchema);
         const context = new Context(store);
 
         await store.operate('application', {
@@ -401,8 +403,8 @@ describe('基础测试', function () {
             },
         }, context);
         // console.log(applications);
-        assert(applications.length === 2);
-        applications.forEach(
+        assert(applications.result.length === 2);
+        applications.result.forEach(
             (app) => {
                 assert(app.id === 'aaa' && app.system!.$expr === false
                     || app.id === 'aaa2' && app.system!.$expr === true);
@@ -433,7 +435,7 @@ describe('基础测试', function () {
         }, context);
         console.log(applications);
         // assert(applications.length === 2);
-        applications.forEach(
+        applications.result.forEach(
             (app) => {
                 assert(app.id === 'aaa' && app.$expr === false
                     || app.id === 'aaa2' && app.$expr === true);
@@ -442,7 +444,7 @@ describe('基础测试', function () {
     });
 
     it('[1.6]projection中的一对多跨结点表达式', async () => {
-        const store = new TreeStore<keyof EntityDict, EntityDict>(storageSchema);
+        const store = new TreeStore<EntityDict>(storageSchema);
         const context = new Context(store);
 
         await store.operate('system', {
@@ -502,8 +504,8 @@ describe('基础测试', function () {
             },
         }, context);
         // console.log(systems);
-        assert(systems.length === 1);
-        const [ system ] = systems;
+        assert(systems.result.length === 1);
+        const [ system ] = systems.result;
         const { application$system: applications }  = system;
         assert(applications!.length === 2);
         applications!.forEach(
@@ -515,7 +517,7 @@ describe('基础测试', function () {
     });
 
     it('[1.7]事务性测试', async () => {
-        const store = new TreeStore<keyof EntityDict, EntityDict>(storageSchema);
+        const store = new TreeStore<EntityDict>(storageSchema);
         const context = new Context(store);
 
         await store.operate('system', {
@@ -559,7 +561,7 @@ describe('基础测试', function () {
                 },
             },
         }, context);
-        assert(systems.length === 1 && systems[0].application$system!.length === 2);
+        assert(systems.result.length === 1 && systems.result[0].application$system!.length === 2);
         
         await store.operate('application', {
             action: 'remove',
@@ -581,7 +583,7 @@ describe('基础测试', function () {
                 },
             },
         }, context);
-        assert(systems2.length === 1 && systems2[0].application$system!.length === 1);
+        assert(systems2.result.length === 1 && systems2.result[0].application$system!.length === 1);
         await context.rollback();
 
         const systems3 = await store.select('system', {
@@ -596,7 +598,7 @@ describe('基础测试', function () {
                 },
             },
         }, context);
-        assert(systems3.length === 1 && systems3[0].application$system!.length === 2);
+        assert(systems3.result.length === 1 && systems3.result[0].application$system!.length === 2);
     });
 });
 

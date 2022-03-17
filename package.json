@@ -8,8 +8,8 @@
         "uuid": "^8.3.2"
     },
     "scripts": {
-        "pretest": "ts-node test/build-app-domain",
-        "test": "ts-node test/test.ts",
+        "make-domain": "ts-node test/build-app-domain",
+        "test": "mocha",
         "build": "tsc",
         "postinstall": "npm link oak-domain"        
     },
