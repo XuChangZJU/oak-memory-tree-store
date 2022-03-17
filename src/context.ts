@@ -22,7 +22,9 @@ export class Context<ED extends {
         assert(!this.uuid);
         this.uuid = v4();
         this.rowStore.begin(this.uuid);
-        this.result = {};
+        this.result = {
+            operations: [],
+        };
     }
     async commit(): Promise<void> {
         assert(this.uuid);
