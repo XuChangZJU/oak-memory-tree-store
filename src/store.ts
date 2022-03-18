@@ -1,6 +1,6 @@
 import { assign, get, set, unset } from 'lodash';
 import assert from 'assert';
-import { EntityDef, SelectionResult, DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation, DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult } from "oak-domain/lib/types/Entity";
+import { EntityDef, SelectionResult, DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation, DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateParams } from "oak-domain/lib/types/Entity";
 import { ExpressionKey, EXPRESSION_PREFIX, NodeId, RefAttr } from 'oak-domain/lib/types/Demand';
 import { CascadeStore } from 'oak-domain/lib/schema/CascadeStore';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
@@ -165,7 +165,7 @@ export default class TreeStore<ED extends {
                     let later = false;
                     let results = paramsTranslated.map(
                         (ele) => {
-                            if (typeof ele ==='function') {
+                            if (typeof ele === 'function') {
                                 const r = ele(row, nodeDict);
                                 if (typeof r === 'function') {
                                     later = true;
@@ -206,7 +206,7 @@ export default class TreeStore<ED extends {
                             const laterCheckFn = (nodeDict2: NodeDict) => {
                                 result = (result as ExprLaterCheckFn)(nodeDict2);
                                 if (typeof result === 'function') {
-                                    return laterCheckFn;                                    
+                                    return laterCheckFn;
                                 }
                                 return result;
                             }
@@ -715,7 +715,7 @@ export default class TreeStore<ED extends {
         entity: T,
         operation: DeduceCreateSingleOperation<ED[T]['Schema']> | DeduceUpdateOperation<ED[T]['Schema']> | DeduceRemoveOperation<ED[T]['Schema']>,
         context: Context<ED>,
-        params: Object = {}): Promise<void> {
+        params?: OperateParams): Promise<void> {
         const { data, action } = operation;
 
         switch (action) {
@@ -733,6 +733,13 @@ export default class TreeStore<ED extends {
                 };
                 set(this.store, `${entity}.${id!}`, node);
                 this.addToTxnNode(node, context, 'create');
+                if (!params || !params.notCollect) {
+                    context.result!.operations.push({
+                        a: 'c',
+                        e: entity,
+                        d: data,
+                    });
+                }
                 break;
             }
             default: {
@@ -752,12 +759,27 @@ export default class TreeStore<ED extends {
                         node.$uuid = context.uuid!;
                         if (action === 'remove') {
                             node.$next = null;
-                            node.$path = `${entity}.${id!}`,
-                                this.addToTxnNode(node, context, 'remove');
+                            node.$path = `${entity}.${id!}`;
+                            this.addToTxnNode(node, context, 'remove');
+                            if (!params || !params.notCollect) {
+                                context.result!.operations.push({
+                                    a: 'r',
+                                    e: entity,
+                                    f: (operation as DeduceRemoveOperation<ED[T]['Schema']>).filter,
+                                });
+                            }
                         }
                         else {
                             node.$next = data as EntityShape;
                             this.addToTxnNode(node, context, 'update');
+                            if (!params || !params.notCollect) {
+                                context.result!.operations.push({
+                                    a: 'u',
+                                    e: entity,
+                                    d: data,
+                                    f: (operation as DeduceUpdateOperation<ED[T]['Schema']>).filter,
+                                });
+                            }
                         }
                     }
                 );
@@ -766,7 +788,7 @@ export default class TreeStore<ED extends {
         }
     }
 
-    private async doOperation<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Context<ED>, params?: Object): Promise<void> {
+    private async doOperation<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Context<ED>, params?: OperateParams): Promise<void> {
         const { action } = operation;
         if (action === 'select') {
             const result = await this.cascadeSelect(entity, operation as any, context, params);
@@ -782,7 +804,7 @@ export default class TreeStore<ED extends {
         }
     }
 
-    async operate<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Context<ED>, params?: Object): Promise<OperationResult<ED>> {
+    async operate<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Context<ED>, params?: OperateParams): Promise<OperationResult<ED>> {
         let autoCommit = false;
         if (!context.uuid) {
             autoCommit = true;
