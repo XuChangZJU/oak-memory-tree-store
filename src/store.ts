@@ -1,4 +1,4 @@
-import { assign, get, set, unset } from 'lodash';
+import { assign, cloneDeep, get, last, set, unset } from 'lodash';
 import assert from 'assert';
 import { EntityDef, SelectionResult, DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation, DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateParams } from "oak-domain/lib/types/Entity";
 import { ExpressionKey, EXPRESSION_PREFIX, NodeId, RefAttr } from 'oak-domain/lib/types/Demand';
@@ -81,13 +81,13 @@ export default class TreeStore<ED extends {
     }
 
     private constructRow(node: RowNode, context: Context<ED>) {
-        let data = node.$current;
+        let data = cloneDeep(node.$current);
         if (context.uuid && node.$uuid === context.uuid) {
             if (!node.$next) {
                 return null;
             }
             else {
-                data = assign({}, node.$current, node.$next);
+                assign(data, node.$next);
             }
         }
         return data;
@@ -665,6 +665,55 @@ export default class TreeStore<ED extends {
         }
     }
 
+    /**
+     * 将一次查询的结果集加入result
+     * @param entity 
+     * @param rows 
+     * @param context 
+     */
+    private addToResultSelections<T extends keyof ED>(entity: T, rows: Array<ED[T]['OpSchema']>, context: Context<ED>) {
+        const { result } = context;
+        const { operations } = result!;
+
+        let lastOperation = last(operations);
+        if (lastOperation && lastOperation.a === 's') {
+            const entityBranch = lastOperation.d[entity];
+            if (entityBranch) {
+                rows.forEach(
+                    (row) => {
+                        const { id } = row;
+                        if (!entityBranch![id!]) {
+                            assign(entityBranch!, {
+                                [id!]: cloneDeep(row),
+                            });
+                        }
+                    }
+                );
+                return;
+            }
+        }
+        else {
+            lastOperation = {
+                a: 's',
+                d: {},
+            };
+            operations.push(lastOperation);
+        }
+        
+        const entityBranch = {};
+        rows.forEach(
+            (row) => {
+                const { id } = row;
+                assign(entityBranch!, {
+                    [id!]: cloneDeep(row),
+                });
+            }
+        );
+        assign(lastOperation.d, {
+            [entity]: entityBranch,
+        });
+    }
+
     protected async selectAbjointRow<T extends keyof ED>(
         entity: T,
         selection: Omit<ED[T]['Selection'], 'indexFrom' | 'count' | 'data' | 'sorter'>,
@@ -708,6 +757,7 @@ export default class TreeStore<ED extends {
             (node) => this.constructRow(node, context) as EntityShape
         );
 
+        this.addToResultSelections(entity, rows, context);
         return rows;
     }
 
@@ -871,11 +921,12 @@ export default class TreeStore<ED extends {
                 }
                 else if (relation === 2) {
                     const result2 = {};
+                    const { entity, entityId } = row2;
                     await this.formProjection(attr, row2[attr], data2[attr], result2, nodeDict, context);
                     assign(result, {
                         [attr]: result2,
-                        entity: row2.entity,
-                        entityId: row2.entityId,
+                        entity,
+                        entityId,
                     });
                 }
                 else if (typeof relation === 'string') {
@@ -883,7 +934,6 @@ export default class TreeStore<ED extends {
                     await this.formProjection(relation, row2[attr], data2[attr], result2, nodeDict, context);
                     assign(result, {
                         [attr]: result2,
-                        [`${attr}Id`]: row2[`${attr}Id`],
                     });
                 }
                 else {
@@ -934,9 +984,25 @@ export default class TreeStore<ED extends {
     }
 
     async select<T extends keyof ED>(entity: T, selection: ED[T]['Selection'], context: Context<ED>, params?: Object): Promise<SelectionResult<ED, T>> {
-        const rows = await this.cascadeSelect(entity, selection, context, params);
-
-        const result = await this.formResult(entity, rows, selection, context);
+        let autoCommit = false;
+        let result;
+        if (!context.uuid) {
+            autoCommit = true;
+            await context.begin();
+        }
+        try {
+            const rows = await this.cascadeSelect(entity, selection, context, params);
+    
+            result = await this.formResult(entity, rows, selection, context);
+        } catch (err) {
+            if (autoCommit) {
+                await context.rollback();
+            }
+            throw err;
+        }
+        if (autoCommit) {
+            await context.commit();
+        }
         const { stats } = context.result!;
         return {
             result,

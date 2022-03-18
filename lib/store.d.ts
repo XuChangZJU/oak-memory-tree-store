@@ -1,4 +1,4 @@
-import { EntityDef, SelectionResult, DeduceCreateSingleOperation, DeduceRemoveOperation, DeduceUpdateOperation, OperationResult } from "oak-domain/lib/types/Entity";
+import { EntityDef, SelectionResult, DeduceCreateSingleOperation, DeduceRemoveOperation, DeduceUpdateOperation, OperationResult, OperateParams } from "oak-domain/lib/types/Entity";
 import { CascadeStore } from 'oak-domain/lib/schema/CascadeStore';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
 import { Context } from "./context";
@@ -56,10 +56,17 @@ export default class TreeStore<ED extends {
     private translateAttribute;
     private translateFilter;
     private translateSorter;
+    /**
+     * 将一次查询的结果集加入result
+     * @param entity
+     * @param rows
+     * @param context
+     */
+    private addToResultSelections;
     protected selectAbjointRow<T extends keyof ED>(entity: T, selection: Omit<ED[T]['Selection'], 'indexFrom' | 'count' | 'data' | 'sorter'>, context: Context<ED>, params?: Object): Promise<SelectionResult<ED, T>['result']>;
-    protected updateAbjointRow<T extends keyof ED>(entity: T, operation: DeduceCreateSingleOperation<ED[T]['Schema']> | DeduceUpdateOperation<ED[T]['Schema']> | DeduceRemoveOperation<ED[T]['Schema']>, context: Context<ED>, params?: Object): Promise<void>;
+    protected updateAbjointRow<T extends keyof ED>(entity: T, operation: DeduceCreateSingleOperation<ED[T]['Schema']> | DeduceUpdateOperation<ED[T]['Schema']> | DeduceRemoveOperation<ED[T]['Schema']>, context: Context<ED>, params?: OperateParams): Promise<void>;
     private doOperation;
-    operate<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Context<ED>, params?: Object): Promise<OperationResult<ED>>;
+    operate<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Context<ED>, params?: OperateParams): Promise<OperationResult<ED>>;
     protected formProjection<T extends keyof ED>(entity: T, row: ED[T]['Schema'], data: ED[T]['Selection']['data'], result: Partial<ED[T]['Schema']>, nodeDict: NodeDict, context: Context<ED>): Promise<void>;
     private formResult;
     select<T extends keyof ED>(entity: T, selection: ED[T]['Selection'], context: Context<ED>, params?: Object): Promise<SelectionResult<ED, T>>;
