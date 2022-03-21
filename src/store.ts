@@ -1,6 +1,6 @@
 import { assign, cloneDeep, get, last, set, unset } from 'lodash';
 import assert from 'assert';
-import { EntityDef, SelectionResult, DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation, DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateParams, OpRecord } from "oak-domain/lib/types/Entity";
+import { EntityDef, SelectionResult, DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation, DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateParams, OpRecord, DeduceCreateOperationData, DeduceUpdateOperationData, UpdateOpResult, RemoveOpResult, SelectOpResult } from "oak-domain/lib/types/Entity";
 import { ExpressionKey, EXPRESSION_PREFIX, NodeId, RefAttr } from 'oak-domain/lib/types/Demand';
 import { CascadeStore } from 'oak-domain/lib/schema/CascadeStore';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
@@ -260,7 +260,7 @@ export default class TreeStore<ED extends {
     private translateExpression<T extends keyof ED>(
         entity: T,
         expression: Expression<keyof ED[T]['Schema']>,
-        context: Context<ED>): (row: ED[T]['OpSchema'], nodeDict: NodeDict) => Promise<ExpressionConstant | ExprLaterCheckFn> {
+        context: Context<ED>): (row: Partial<ED[T]['OpSchema']>, nodeDict: NodeDict) => Promise<ExpressionConstant | ExprLaterCheckFn> {
         const expr = this.translateExpressionNode(entity, expression, context);
 
         return async (row, nodeDict) => {
@@ -767,26 +767,32 @@ export default class TreeStore<ED extends {
         params?: OperateParams): Promise<void> {
         const { data, action } = operation;
 
+        const now = Date.now();
         switch (action) {
             case 'create': {
-                const { id } = data as DeduceCreateSingleOperation<ED[T]['Schema']>['data'];
-                const row = get(this.store, `${entity}.${id!}`);
-                if (row) {
+                const { id } = data as DeduceCreateOperationData<ED[T]["Schema"]>;
+                const node = (this.store[entity]!)[id as string];
+                const row = node && this.constructRow(node, context) || {};
+                /* if (row) {
                     throw new OakError(RowStore.$$LEVEL, RowStore.$$CODES.primaryKeyConfilict);
-                }
-                const node: RowNode = {
+                } */
+                const data2 = assign(row, data as DeduceCreateOperationData<ED[T]["Schema"]>, {
+                    $$createAt$$: data.$$createAt$$ || now,
+                    $$updateAt$$: data.$$updateAt$$ || now,
+                });
+                const node2: RowNode = {
                     $uuid: context.uuid!,
                     $current: null,
-                    $next: data as DeduceCreateSingleOperation<ED[T]['Schema']>['data'],
+                    $next: data2,
                     $path: `${entity}.${id!}`,
                 };
-                set(this.store, `${entity}.${id!}`, node);
-                this.addToTxnNode(node, context, 'create');
+                set(this.store, `${entity}.${id!}`, node2);
+                this.addToTxnNode(node2, context, 'create');
                 if (!params || !params.notCollect) {
                     context.opRecords.push({
                         a: 'c',
                         e: entity,
-                        d: data,
+                        d: data2,
                     });
                 }
                 break;
@@ -819,13 +825,17 @@ export default class TreeStore<ED extends {
                             }
                         }
                         else {
-                            node.$next = data as EntityShape;
+                            const row = node && this.constructRow(node, context) || {};
+                            const data2 = assign(row, data as DeduceUpdateOperationData<ED[T]['Schema']>, {
+                                $$updateAt$$: data.$$updateAt$$ || now,
+                            });
+                            node.$next = data2;
                             this.addToTxnNode(node, context, 'update');
                             if (!params || !params.notCollect) {
                                 context.opRecords.push({
                                     a: 'u',
                                     e: entity,
-                                    d: data,
+                                    d: data2,
                                     f: (operation as DeduceUpdateOperation<ED[T]['Schema']>).filter,
                                 });
                             }
@@ -875,7 +885,7 @@ export default class TreeStore<ED extends {
 
     protected async formProjection<T extends keyof ED>(
         entity: T,
-        row: ED[T]['OpSchema'],
+        row: Partial<ED[T]['OpSchema']>,
         data: ED[T]['Selection']['data'],
         result: Partial<ED[T]['Schema']>,
         nodeDict: NodeDict,
@@ -959,7 +969,7 @@ export default class TreeStore<ED extends {
 
     private async formResult<T extends keyof ED>(
         entity: T,
-        rows: Array<ED[T]['OpSchema']>,
+        rows: Array<Partial<ED[T]['Schema']>>,
         selection: Omit<ED[T]['Selection'], 'filter'>,
         context: Context<ED>,
         nodeDict?: NodeDict) {
@@ -1098,10 +1108,50 @@ export default class TreeStore<ED extends {
                     const { e, d } = record;
                     await this.doOperation(e, {
                         action: 'create',
-                        data: d as ED[keyof ED]['Schema'] & { id: string },
+                        data: d,
                     }, context, {
                         notCollect: true,
                     });
+                    break;
+                }
+                case 'u': {
+                    const { e, d, f } = record as UpdateOpResult<ED, keyof ED>;
+                    await this.doOperation(e, {
+                        action: 'update',
+                        data: d,
+                        filter: f,
+                    }, context, {
+                        notCollect: true,
+                    });
+                    break;
+                }
+                case 'r': {
+                    const { e, f } = record as RemoveOpResult<ED, keyof ED>;
+                    await this.doOperation(e, {
+                        action: 'remove',
+                        data: {},
+                        filter: f,
+                    }, context, {
+                        notCollect: true,
+                    });
+                    break;
+                }
+                case 's': {
+                    const { d } = record as SelectOpResult<ED>;
+                    for (const entity in d) {
+                        for (const id in d[entity]) {
+                            await this.doOperation(entity, {
+                                action: 'create',
+                                data: d[entity]![id],
+                            }, context, {
+                                notCollect: true,
+                            });
+                        }
+                    }
+                    break;
+                }
+                default: {
+                    assert(false);
                 }
             }
         }

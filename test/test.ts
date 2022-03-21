@@ -5,6 +5,7 @@ import { EntityDict } from './app-domain/EntityDict';
 import { Context } from '../src/context';
 import { storageSchema } from './app-domain/Storage';
 import assert from 'assert';
+import { CreateSingleOperation } from './app-domain/System/Schema';
 
 describe('基础测试', function () {
     this.timeout(1000000);
@@ -26,8 +27,8 @@ describe('基础测试', function () {
                         name: 'systest',
                         description: 'aaaaa',
                         config: {},
-                    }
-                }
+                    } as CreateSingleOperation['data']
+                },
             }, {
                 id: 'aaa2',
                 name: 'test2',
