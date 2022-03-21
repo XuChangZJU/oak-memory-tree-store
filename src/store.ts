@@ -1,6 +1,6 @@
 import { assign, cloneDeep, get, last, set, unset } from 'lodash';
 import assert from 'assert';
-import { EntityDef, SelectionResult, DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation, DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateParams } from "oak-domain/lib/types/Entity";
+import { EntityDef, SelectionResult, DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation, DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateParams, OpRecord } from "oak-domain/lib/types/Entity";
 import { ExpressionKey, EXPRESSION_PREFIX, NodeId, RefAttr } from 'oak-domain/lib/types/Demand';
 import { CascadeStore } from 'oak-domain/lib/schema/CascadeStore';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
@@ -260,7 +260,7 @@ export default class TreeStore<ED extends {
     private translateExpression<T extends keyof ED>(
         entity: T,
         expression: Expression<keyof ED[T]['Schema']>,
-        context: Context<ED>): (row: ED[T]['Schema'], nodeDict: NodeDict) => Promise<ExpressionConstant | ExprLaterCheckFn> {
+        context: Context<ED>): (row: ED[T]['OpSchema'], nodeDict: NodeDict) => Promise<ExpressionConstant | ExprLaterCheckFn> {
         const expr = this.translateExpressionNode(entity, expression, context);
 
         return async (row, nodeDict) => {
@@ -672,10 +672,9 @@ export default class TreeStore<ED extends {
      * @param context 
      */
     private addToResultSelections<T extends keyof ED>(entity: T, rows: Array<ED[T]['OpSchema']>, context: Context<ED>) {
-        const { result } = context;
-        const { operations } = result!;
+        const { opRecords } = context;
 
-        let lastOperation = last(operations);
+        let lastOperation = last(opRecords);
         if (lastOperation && lastOperation.a === 's') {
             const entityBranch = lastOperation.d[entity];
             if (entityBranch) {
@@ -697,7 +696,7 @@ export default class TreeStore<ED extends {
                 a: 's',
                 d: {},
             };
-            operations.push(lastOperation);
+            opRecords.push(lastOperation);
         }
         
         const entityBranch = {};
@@ -784,7 +783,7 @@ export default class TreeStore<ED extends {
                 set(this.store, `${entity}.${id!}`, node);
                 this.addToTxnNode(node, context, 'create');
                 if (!params || !params.notCollect) {
-                    context.result!.operations.push({
+                    context.opRecords.push({
                         a: 'c',
                         e: entity,
                         d: data,
@@ -812,7 +811,7 @@ export default class TreeStore<ED extends {
                             node.$path = `${entity}.${id!}`;
                             this.addToTxnNode(node, context, 'remove');
                             if (!params || !params.notCollect) {
-                                context.result!.operations.push({
+                                context.opRecords.push({
                                     a: 'r',
                                     e: entity,
                                     f: (operation as DeduceRemoveOperation<ED[T]['Schema']>).filter,
@@ -823,7 +822,7 @@ export default class TreeStore<ED extends {
                             node.$next = data as EntityShape;
                             this.addToTxnNode(node, context, 'update');
                             if (!params || !params.notCollect) {
-                                context.result!.operations.push({
+                                context.opRecords.push({
                                     a: 'u',
                                     e: entity,
                                     d: data,
@@ -838,30 +837,30 @@ export default class TreeStore<ED extends {
         }
     }
 
-    private async doOperation<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Context<ED>, params?: OperateParams): Promise<void> {
+    private async doOperation<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Context<ED>, params?: OperateParams): Promise<OperationResult> {
         const { action } = operation;
         if (action === 'select') {
             const result = await this.cascadeSelect(entity, operation as any, context, params);
             const ids = result.map(
-                (ele) => ele.id
+                (ele) => ele.id!
             );
-            assign(context.result, {
-                ids,
-            });
+            return { ids };
         }
         else {
-            return this.cascadeUpdate(entity, operation as any, context, params);
+            this.cascadeUpdate(entity, operation as any, context, params);
+            return {};
         }
     }
 
-    async operate<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Context<ED>, params?: OperateParams): Promise<OperationResult<ED>> {
+    async operate<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Context<ED>, params?: OperateParams): Promise<OperationResult> {
         let autoCommit = false;
         if (!context.uuid) {
             autoCommit = true;
             await context.begin();
         }
+        let result;
         try {
-            await this.doOperation(entity, operation, context, params);
+            result = await this.doOperation(entity, operation, context, params);
         } catch (err) {
             if (autoCommit) {
                 await context.rollback();
@@ -871,12 +870,12 @@ export default class TreeStore<ED extends {
         if (autoCommit) {
             await context.commit();
         }
-        return context.result!;
+        return result;
     }
 
     protected async formProjection<T extends keyof ED>(
         entity: T,
-        row: ED[T]['Schema'],
+        row: ED[T]['OpSchema'],
         data: ED[T]['Selection']['data'],
         result: Partial<ED[T]['Schema']>,
         nodeDict: NodeDict,
@@ -960,7 +959,7 @@ export default class TreeStore<ED extends {
 
     private async formResult<T extends keyof ED>(
         entity: T,
-        rows: Array<Partial<ED[T]['Schema']>>,
+        rows: Array<ED[T]['OpSchema']>,
         selection: Omit<ED[T]['Selection'], 'filter'>,
         context: Context<ED>,
         nodeDict?: NodeDict) {
@@ -1003,10 +1002,9 @@ export default class TreeStore<ED extends {
         if (autoCommit) {
             await context.commit();
         }
-        const { stats } = context.result!;
         return {
             result,
-            stats,
+            // stats,
         };
     }
 
@@ -1090,5 +1088,22 @@ export default class TreeStore<ED extends {
             node = node2;
         }
         unset(this.activeTxnDict, uuid);
+    }
+
+    // 将输入的OpRecord同步到数据中
+    async sync(opRecords: Array<OpRecord<ED>>, context: Context<ED>) {
+        for (const record of opRecords) {
+            switch (record.a) {
+                case 'c': {
+                    const { e, d } = record;
+                    await this.doOperation(e, {
+                        action: 'create',
+                        data: d as ED[keyof ED]['Schema'] & { id: string },
+                    }, context, {
+                        notCollect: true,
+                    });
+                }
+            }
+        }
     }
 }
