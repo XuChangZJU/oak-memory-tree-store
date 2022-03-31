@@ -771,7 +771,7 @@ export default class TreeStore<ED extends {
         switch (action) {
             case 'create': {
                 const { id } = data as DeduceCreateOperationData<ED[T]["Schema"]>;
-                const node = (this.store[entity]!)[id as string];
+                const node = this.store[entity] && (this.store[entity]!)[id as string];
                 const row = node && this.constructRow(node, context) || {};
                 /* if (row) {
                     throw new OakError(RowStore.$$LEVEL, RowStore.$$CODES.primaryKeyConfilict);
