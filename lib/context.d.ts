@@ -5,8 +5,7 @@ export declare class Context<ED extends EntityDict> implements ContextInterface<
     rowStore: TreeStore<ED>;
     uuid?: string;
     opRecords: OpRecord<ED>[];
-    getRandomNumber: (length: number) => Promise<Uint8Array>;
-    constructor(store: TreeStore<ED>, getRandomNumber: (length: number) => Promise<Uint8Array>);
+    constructor(store: TreeStore<ED>);
     on(event: 'commit' | 'rollback', callback: (context: ContextInterface<ED>) => Promise<void>): void;
     begin(options?: object): Promise<void>;
     commit(): Promise<void>;

@@ -8,12 +8,10 @@ export class Context<ED extends EntityDict> implements ContextInterface<ED> {
     rowStore: TreeStore<ED>;
     uuid?: string;
     opRecords: OpRecord<ED>[];
-    getRandomNumber: (length: number) => Promise<Uint8Array>;   // 在不同的环境下取随机数的实现
 
-    constructor(store: TreeStore<ED>, getRandomNumber: (length: number) => Promise<Uint8Array>) {
+    constructor(store: TreeStore<ED>) {
         this.rowStore = store;
         this.opRecords = [];
-        this.getRandomNumber = getRandomNumber;
     }
 
     on(event: 'commit' | 'rollback', callback: (context: ContextInterface<ED>) => Promise<void>): void {
@@ -22,7 +20,7 @@ export class Context<ED extends EntityDict> implements ContextInterface<ED> {
 
     async begin(options?: object): Promise<void> {
         assert(!this.uuid);
-        const random = await this.getRandomNumber(16);
+        const random = await getRandomValues(16);
         this.uuid = v4({ random });
         this.rowStore.begin(this.uuid);
     }
