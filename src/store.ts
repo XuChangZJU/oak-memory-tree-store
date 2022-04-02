@@ -87,7 +87,7 @@ export default class TreeStore<ED extends {
                 return null;
             }
             else {
-                assign(data, node.$next);
+                return assign({}, data, node.$next);
             }
         }
         return data;
@@ -771,12 +771,12 @@ export default class TreeStore<ED extends {
         switch (action) {
             case 'create': {
                 const { id } = data as DeduceCreateOperationData<ED[T]["Schema"]>;
-                const node = this.store[entity] && (this.store[entity]!)[id as string];
-                const row = node && this.constructRow(node, context) || {};
+                // const node = this.store[entity] && (this.store[entity]!)[id as string];
+                // const row = node && this.constructRow(node, context) || {};
                 /* if (row) {
                     throw new OakError(RowStore.$$LEVEL, RowStore.$$CODES.primaryKeyConfilict);
                 } */
-                const data2 = assign(row, data as DeduceCreateOperationData<ED[T]["Schema"]>, {
+                const data2 = assign(data as DeduceCreateOperationData<ED[T]["Schema"]>, {
                     $$createAt$$: data.$$createAt$$ || now,
                     $$updateAt$$: data.$$updateAt$$ || now,
                 });
@@ -810,7 +810,7 @@ export default class TreeStore<ED extends {
                 ids.forEach(
                     (id) => {
                         const node = (this.store[entity]!)[id as string];
-                        assert(node && !node.$uuid && node.$next === undefined);
+                        assert(node && (!node.$uuid || node.$uuid === context.uuid));
                         node.$uuid = context.uuid!;
                         if (action === 'remove') {
                             node.$next = null;
@@ -826,10 +826,11 @@ export default class TreeStore<ED extends {
                         }
                         else {
                             const row = node && this.constructRow(node, context) || {};
-                            const data2 = assign(row, data as DeduceUpdateOperationData<ED[T]['Schema']>, {
+                            const data2 = assign(data as DeduceUpdateOperationData<ED[T]['Schema']>, {
                                 $$updateAt$$: data.$$updateAt$$ || now,
                             });
-                            node.$next = data2;
+                            const data3 = assign(row, data2);
+                            node.$next = data3;
                             this.addToTxnNode(node, context, 'update');
                             if (!params || !params.notCollect) {
                                 context.opRecords.push({
@@ -929,21 +930,25 @@ export default class TreeStore<ED extends {
                     });
                 }
                 else if (relation === 2) {
-                    const result2 = {};
-                    const { entity, entityId } = row2;
-                    await this.formProjection(attr, row2[attr], data2[attr], result2, nodeDict, context);
-                    assign(result, {
-                        [attr]: result2,
-                        entity,
-                        entityId,
-                    });
+                    if (row2[attr]) {
+                        const result2 = {};
+                        const { entity, entityId } = row2;
+                        await this.formProjection(attr, row2[attr], data2[attr], result2, nodeDict, context);
+                        assign(result, {
+                            [attr]: result2,
+                            entity,
+                            entityId,
+                        });
+                    }
                 }
                 else if (typeof relation === 'string') {
-                    const result2 = {};
-                    await this.formProjection(relation, row2[attr], data2[attr], result2, nodeDict, context);
-                    assign(result, {
-                        [attr]: result2,
-                    });
+                    if (row2[attr]) {
+                        const result2 = {};
+                        await this.formProjection(relation, row2[attr], data2[attr], result2, nodeDict, context);
+                        assign(result, {
+                            [attr]: result2,
+                        });
+                    }
                 }
                 else {
                     assert(relation instanceof Array);
