@@ -851,14 +851,16 @@ export default class TreeStore<ED extends {
     private async doOperation<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Context<ED>, params?: OperateParams): Promise<OperationResult> {
         const { action } = operation;
         if (action === 'select') {
-            const result = await this.cascadeSelect(entity, operation as any, context, params);
+            const rows = await this.cascadeSelect(entity, operation as any, context, params);
+            
+            const result = await this.formResult(entity, rows, operation as any, context);
             const ids = result.map(
                 (ele) => ele.id!
             );
             return { ids };
         }
         else {
-            this.cascadeUpdate(entity, operation as any, context, params);
+            await this.cascadeUpdate(entity, operation as any, context, params);
             return {};
         }
     }
@@ -994,7 +996,19 @@ export default class TreeStore<ED extends {
             )
         );
 
-        return rows2;
+        // 再计算sorter
+        if (sorter) {
+            const sorterFn = this.translateSorter(entity, sorter, context);
+            rows2.sort(sorterFn);
+        }
+
+        // 最后用indexFrom和count来截断
+        if (typeof indexFrom === 'number') {
+            return rows2.slice(indexFrom, indexFrom! + count!);
+        }
+        else {
+            return rows2;
+        }
     }
 
     async select<T extends keyof ED>(entity: T, selection: ED[T]['Selection'], context: Context<ED>, params?: Object): Promise<SelectionResult<ED, T>> {
