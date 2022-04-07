@@ -19,10 +19,11 @@ export class Context<ED extends EntityDict> implements ContextInterface<ED> {
     }
 
     async begin(options?: object): Promise<void> {
-        assert(!this.uuid);
-        const random = await getRandomValues(16);
-        this.uuid = v4({ random });
-        this.rowStore.begin(this.uuid);
+        if (!this.uuid) {
+            const random = await getRandomValues(16);
+            this.uuid = v4({ random });
+            this.rowStore.begin(this.uuid);
+        }
     }
     async commit(): Promise<void> {
         if (this.uuid) {
