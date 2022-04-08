@@ -1,15 +1,15 @@
 import { assign, cloneDeep, get, last, set, unset } from 'lodash';
 import assert from 'assert';
-import { EntityDef, SelectionResult, DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation, DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateParams, OpRecord, DeduceCreateOperationData, DeduceUpdateOperationData, UpdateOpResult, RemoveOpResult, SelectOpResult } from "oak-domain/lib/types/Entity";
+import { EntityDef, SelectionResult, DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation, DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateParams, OpRecord, DeduceCreateOperationData, DeduceUpdateOperationData, UpdateOpResult, RemoveOpResult, SelectOpResult, EntityDict } from "oak-domain/lib/types/Entity";
 import { ExpressionKey, EXPRESSION_PREFIX, NodeId, RefAttr } from 'oak-domain/lib/types/Demand';
-import { CascadeStore } from 'oak-domain/lib/schema/CascadeStore';
+import { CascadeStore } from 'oak-domain/lib/store/CascadeStore';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
 import { OakError } from 'oak-domain/lib/OakError';
 import { Context } from "./context";
 import { ExprResolveFn, NodeDict, RowNode } from "./types/type";
 import { RowStore } from 'oak-domain/lib/types/RowStore';
 import { isRefAttrNode, Q_BooleanValue, Q_FullTextValue, Q_NumberValue, Q_StringValue } from 'oak-domain/lib/types/Demand';
-import { judgeRelation } from 'oak-domain/lib/schema/relation';
+import { judgeRelation } from 'oak-domain/lib/store/relation';
 import { execOp, Expression, ExpressionConstant, isExpression, opMultipleParams } from 'oak-domain/lib/types/Expression';
 
 
@@ -21,9 +21,7 @@ interface ExprNodeTranslator {
     (row: any, nodeDict: NodeDict): ExpressionConstant | ExprLaterCheckFn;
 };
 
-export default class TreeStore<ED extends {
-    [E: string]: EntityDef;
-}> extends CascadeStore<ED> {
+export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
     countextends: any;
     store: {
         [T in keyof ED]?: {

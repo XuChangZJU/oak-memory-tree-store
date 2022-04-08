@@ -1,11 +1,9 @@
-import { EntityDef, SelectionResult, DeduceCreateSingleOperation, DeduceRemoveOperation, DeduceUpdateOperation, OperationResult, OperateParams, OpRecord } from "oak-domain/lib/types/Entity";
-import { CascadeStore } from 'oak-domain/lib/schema/CascadeStore';
+import { SelectionResult, DeduceCreateSingleOperation, DeduceRemoveOperation, DeduceUpdateOperation, OperationResult, OperateParams, OpRecord, EntityDict } from "oak-domain/lib/types/Entity";
+import { CascadeStore } from 'oak-domain/lib/store/CascadeStore';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
 import { Context } from "./context";
 import { NodeDict, RowNode } from "./types/type";
-export default class TreeStore<ED extends {
-    [E: string]: EntityDef;
-}> extends CascadeStore<ED> {
+export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
     countextends: any;
     store: {
         [T in keyof ED]?: {
