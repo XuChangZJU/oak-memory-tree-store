@@ -44,6 +44,9 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
         };
     }) {
         for (const entity in data) {
+            if (!this.store[entity]) {
+                this.store[entity] = {};
+            }
             for (const rowId in data[entity]) {
                 set(this.store, `${entity}.${rowId}.#current`, data[entity]![rowId]);
             }
@@ -55,8 +58,13 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
             [ID: string]: ED[T]['OpSchema'];
         };
     } {
-        const result = {};
+        const result: {
+            [T in keyof ED]?: {
+                [ID: string]: ED[T]['OpSchema'];
+            };
+        } = {};
         for (const entity in this.store) {
+            result[entity] = {};
             for (const rowId in this.store[entity]) {
                 set(result, `${entity}.${rowId}`, this.store[entity]![rowId]!['$current']);
             }
@@ -533,11 +541,11 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
                     fns.push(
                         async (node, nodeDict, exprResolveFns) => {
                             const row = this.constructRow(node, context);
-                            if ((row as any).entity !== attr) {
+                            if ((row as any).entity !== attr || (row as any).entityId) {
                                 return false;
                             }
                             const node2 = get(this.store, `${attr}.${(row as any).entityId}`);
-                            assert(node2);
+                            assert(node2);                            
                             return fn(node2, nodeDict, exprResolveFns);
                         }
                     );
@@ -549,9 +557,12 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
                     fns.push(
                         async (node, nodeDict, exprResolveFns) => {
                             const row = this.constructRow(node, context);
-                            const node2 = get(this.store, `${relation}.${(row as any)[`${attr}Id`]}`);
-                            assert(node2);
-                            return fn(node2, nodeDict, exprResolveFns);
+                            if ((row as any)[`${attr}Id`]) {
+                                const node2 = get(this.store, `${relation}.${(row as any)[`${attr}Id`]}`);
+                                assert(node2);
+                                return fn(node2, nodeDict, exprResolveFns);
+                            }
+                            return false;
                         }
                     );
                 }
@@ -784,6 +795,9 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
                     $next: data2,
                     $path: `${entity}.${id!}`,
                 };
+                if (!this.store[entity]) {
+                    this.store[entity] = {};
+                }
                 set(this.store, `${entity}.${id!}`, node2);
                 this.addToTxnNode(node2, context, 'create');
                 if (!params || !params.notCollect) {
@@ -1119,58 +1133,75 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
 
     // 将输入的OpRecord同步到数据中
     async sync(opRecords: Array<OpRecord<ED>>, context: Context<ED>) {
-        for (const record of opRecords) {
-            switch (record.a) {
-                case 'c': {
-                    const { e, d } = record;
-                    await this.doOperation(e, {
-                        action: 'create',
-                        data: d,
-                    }, context, {
-                        notCollect: true,
-                    });
-                    break;
-                }
-                case 'u': {
-                    const { e, d, f } = record as UpdateOpResult<ED, keyof ED>;
-                    await this.doOperation(e, {
-                        action: 'update',
-                        data: d,
-                        filter: f,
-                    }, context, {
-                        notCollect: true,
-                    });
-                    break;
-                }
-                case 'r': {
-                    const { e, f } = record as RemoveOpResult<ED, keyof ED>;
-                    await this.doOperation(e, {
-                        action: 'remove',
-                        data: {},
-                        filter: f,
-                    }, context, {
-                        notCollect: true,
-                    });
-                    break;
-                }
-                case 's': {
-                    const { d } = record as SelectOpResult<ED>;
-                    for (const entity in d) {
-                        for (const id in d[entity]) {
-                            await this.doOperation(entity, {
-                                action: 'create',
-                                data: d[entity]![id],
-                            }, context, {
-                                notCollect: true,
-                            });
-                        }
+        let autoCommit = false;
+        if (!context.uuid) {
+            await context.begin();
+            autoCommit = true;
+        }
+        try {
+            for (const record of opRecords) {
+                switch (record.a) {
+                    case 'c': {
+                        const { e, d } = record;
+                        await this.doOperation(e, {
+                            action: 'create',
+                            data: d,
+                        }, context, {
+                            notCollect: true,
+                        });
+                        break;
                     }
-                    break;
-                }
-                default: {
-                    assert(false);
+                    case 'u': {
+                        const { e, d, f } = record as UpdateOpResult<ED, keyof ED>;
+                        await this.doOperation(e, {
+                            action: 'update',
+                            data: d,
+                            filter: f,
+                        }, context, {
+                            notCollect: true,
+                        });
+                        break;
+                    }
+                    case 'r': {
+                        const { e, f } = record as RemoveOpResult<ED, keyof ED>;
+                        await this.doOperation(e, {
+                            action: 'remove',
+                            data: {},
+                            filter: f,
+                        }, context, {
+                            notCollect: true,
+                        });
+                        break;
+                    }
+                    case 's': {
+                        const { d } = record as SelectOpResult<ED>;
+                        for (const entity in d) {
+                            for (const id in d[entity]) {
+                                await this.doOperation(entity, {
+                                    action: 'create',
+                                    data: d[entity]![id],
+                                }, context, {
+                                    notCollect: true,
+                                });
+                            }
+                        }
+                        break;
+                    }
+                    default: {
+                        assert(false);
+                    }
                 }
             }
+        }
+        catch(err) {
+            if (autoCommit) {
+                await context.rollback();                
+            }
+            throw err;
+        }
+
+        if (autoCommit) {
+            await context.commit();
         }
     }
 }
