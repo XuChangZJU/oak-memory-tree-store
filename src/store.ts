@@ -22,7 +22,6 @@ interface ExprNodeTranslator {
 };
 
 export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
-    countextends: any;
     store: {
         [T in keyof ED]?: {
             [ID: string]: RowNode;

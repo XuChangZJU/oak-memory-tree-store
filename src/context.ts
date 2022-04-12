@@ -14,10 +14,6 @@ export class Context<ED extends EntityDict> implements ContextInterface<ED> {
         this.opRecords = [];
     }
 
-    on(event: 'commit' | 'rollback', callback: (context: ContextInterface<ED>) => Promise<void>): void {
-        throw new Error('not implemented here!');
-    }
-
     async begin(options?: object): Promise<void> {
         if (!this.uuid) {
             const random = await getRandomValues(16);
