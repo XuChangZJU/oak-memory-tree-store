@@ -6,7 +6,6 @@ export declare class Context<ED extends EntityDict> implements ContextInterface<
     uuid?: string;
     opRecords: OpRecord<ED>[];
     constructor(store: TreeStore<ED>);
-    on(event: 'commit' | 'rollback', callback: (context: ContextInterface<ED>) => Promise<void>): void;
     begin(options?: object): Promise<void>;
     commit(): Promise<void>;
     rollback(): Promise<void>;

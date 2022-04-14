@@ -1,6 +1,6 @@
 import { assign, cloneDeep, get, last, set, unset } from 'lodash';
 import assert from 'assert';
-import { EntityDef, SelectionResult, DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation, DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateParams, OpRecord, DeduceCreateOperationData, DeduceUpdateOperationData, UpdateOpResult, RemoveOpResult, SelectOpResult, EntityDict } from "oak-domain/lib/types/Entity";
+import { EntityDef, SelectionResult2, DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation, DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateParams, OpRecord, DeduceCreateOperationData, DeduceUpdateOperationData, UpdateOpResult, RemoveOpResult, SelectOpResult, EntityDict, SelectRowShape } from "oak-domain/lib/types/Entity";
 import { ExpressionKey, EXPRESSION_PREFIX, NodeId, RefAttr } from 'oak-domain/lib/types/Demand';
 import { CascadeStore } from 'oak-domain/lib/store/CascadeStore';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
@@ -544,7 +544,7 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
                                 return false;
                             }
                             const node2 = get(this.store, `${attr}.${(row as any).entityId}`);
-                            assert(node2);                            
+                            assert(node2);
                             return fn(node2, nodeDict, exprResolveFns);
                         }
                     );
@@ -589,10 +589,10 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
     }
 
     private translateSorter<T extends keyof ED>(entity: T, sorter: DeduceSorter<ED[T]['Schema']>, context: Context<ED>):
-        (row1: Partial<EntityShape>, row2: Partial<EntityShape>) => number {
+        (row1: object | null | undefined, row2: object | null | undefined) => number {
         const compare = <T2 extends keyof ED>(
-            row1: Partial<ED[T2]['Schema']> | null | undefined,
-            row2: Partial<ED[T2]['Schema']> | null | undefined,
+            row1: object | null | undefined,
+            row2: object | null | undefined,
             entity2: T2,
             sortAttr: DeduceSorterAttr<ED[T2]['Schema']>, direction?: 'asc' | 'desc'): number => {
             const row11 = row1 as any;
@@ -706,7 +706,7 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
             };
             opRecords.push(lastOperation);
         }
-        
+
         const entityBranch = {};
         rows.forEach(
             (row) => {
@@ -725,7 +725,7 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
         entity: T,
         selection: Omit<ED[T]['Selection'], 'indexFrom' | 'count' | 'data' | 'sorter'>,
         context: Context<ED>,
-        params: Object = {}): Promise<SelectionResult<ED, T>['result']> {
+        params: Object = {}): Promise<Array<ED[T]['OpSchema']>> {
         const { filter } = selection;
         const { nodeDict } = params as {
             nodeDict: NodeDict;
@@ -863,11 +863,11 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
         const { action } = operation;
         if (action === 'select') {
             const rows = await this.cascadeSelect(entity, operation as any, context, params);
-            
+
             const result = await this.formResult(entity, rows, operation as any, context);
             const ids = result.map(
                 (ele) => ele.id!
-            );
+            ) as string[];
             return { ids };
         }
         else {
@@ -901,7 +901,7 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
         entity: T,
         row: Partial<ED[T]['OpSchema']>,
         data: ED[T]['Selection']['data'],
-        result: Partial<ED[T]['Schema']>,
+        result: object,
         nodeDict: NodeDict,
         context: Context<ED>) {
         const row2 = row as any;
@@ -985,27 +985,24 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
         }
     }
 
-    private async formResult<T extends keyof ED>(
+    private async formResult<T extends keyof ED, S extends ED[T]['Selection']>(
         entity: T,
         rows: Array<Partial<ED[T]['Schema']>>,
-        selection: Omit<ED[T]['Selection'], 'filter'>,
+        selection: Omit<S, 'filter'>,
         context: Context<ED>,
         nodeDict?: NodeDict) {
         const { data, sorter, indexFrom, count } = selection;
         // 先计算projection
-        const rows2 = await Promise.all(
-            rows.map(
-                async (row) => {
-                    const result: Partial<ED[T]['Schema']> = {};
-                    const nodeDict2: NodeDict = {};
-                    if (nodeDict) {
-                        assign(nodeDict2, nodeDict);
-                    }
-                    await this.formProjection(entity, row, data, result, nodeDict2, context);
-                    return result;
-                }
-            )
-        );
+        const rows2: Array<SelectRowShape<ED[T]['Schema'], S['data']>> = [];
+        for (const row of rows) {
+            const result = {};
+            const nodeDict2: NodeDict = {};
+            if (nodeDict) {
+                assign(nodeDict2, nodeDict);
+            }
+            await this.formProjection(entity, row, data, result, nodeDict2, context);
+            rows2.push(result as SelectRowShape<ED[T]['Schema'], S['data']>);
+        }
 
         // 再计算sorter
         if (sorter) {
@@ -1022,7 +1019,11 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
         }
     }
 
-    async select<T extends keyof ED>(entity: T, selection: ED[T]['Selection'], context: Context<ED>, params?: Object): Promise<SelectionResult<ED, T>> {
+    async select<T extends keyof ED, S extends ED[T]['Selection']>(
+        entity: T,
+        selection: S,
+        context: Context<ED>,
+        params?: Object): Promise<SelectionResult2<ED[T]['Schema'], S['data']>> {
         let autoCommit = false;
         let result;
         if (!context.uuid) {
@@ -1031,7 +1032,7 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
         }
         try {
             const rows = await this.cascadeSelect(entity, selection, context, params);
-    
+
             result = await this.formResult(entity, rows, selection, context);
         } catch (err) {
             if (autoCommit) {
@@ -1192,9 +1193,9 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
                 }
             }
         }
-        catch(err) {
+        catch (err) {
             if (autoCommit) {
-                await context.rollback();                
+                await context.rollback();
             }
             throw err;
         }

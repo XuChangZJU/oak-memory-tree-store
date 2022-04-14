@@ -407,12 +407,12 @@ describe('基础测试', function () {
         assert(applications.result.length === 2);
         applications.result.forEach(
             (app) => {
-                assert(app.id === 'aaa' && app.system!.$expr === false
+                assert(app.id === 'aaa' && app.system!.$expr === false 
                     || app.id === 'aaa2' && app.system!.$expr === true);
             }
         );
 
-        applications = await store.select('application', {
+        const applications2 = await store.select('application', {
             data: {
                 $expr: {
                     $eq: [
@@ -434,9 +434,9 @@ describe('基础测试', function () {
                 }
             },
         }, context);
-        console.log(applications);
+        console.log(applications2);
         // assert(applications.length === 2);
-        applications.result.forEach(
+        applications2.result.forEach(
             (app) => {
                 assert(app.id === 'aaa' && app.$expr === false
                     || app.id === 'aaa2' && app.$expr === true);

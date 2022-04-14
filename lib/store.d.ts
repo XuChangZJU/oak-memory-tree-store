@@ -1,10 +1,9 @@
-import { SelectionResult, DeduceCreateSingleOperation, DeduceRemoveOperation, DeduceUpdateOperation, OperationResult, OperateParams, OpRecord, EntityDict } from "oak-domain/lib/types/Entity";
+import { SelectionResult2, DeduceCreateSingleOperation, DeduceRemoveOperation, DeduceUpdateOperation, OperationResult, OperateParams, OpRecord, EntityDict } from "oak-domain/lib/types/Entity";
 import { CascadeStore } from 'oak-domain/lib/store/CascadeStore';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
 import { Context } from "./context";
 import { NodeDict, RowNode } from "./types/type";
 export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
-    countextends: any;
     store: {
         [T in keyof ED]?: {
             [ID: string]: RowNode;
@@ -61,13 +60,13 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
      * @param context
      */
     private addToResultSelections;
-    protected selectAbjointRow<T extends keyof ED>(entity: T, selection: Omit<ED[T]['Selection'], 'indexFrom' | 'count' | 'data' | 'sorter'>, context: Context<ED>, params?: Object): Promise<SelectionResult<ED, T>['result']>;
+    protected selectAbjointRow<T extends keyof ED>(entity: T, selection: Omit<ED[T]['Selection'], 'indexFrom' | 'count' | 'data' | 'sorter'>, context: Context<ED>, params?: Object): Promise<Array<ED[T]['OpSchema']>>;
     protected updateAbjointRow<T extends keyof ED>(entity: T, operation: DeduceCreateSingleOperation<ED[T]['Schema']> | DeduceUpdateOperation<ED[T]['Schema']> | DeduceRemoveOperation<ED[T]['Schema']>, context: Context<ED>, params?: OperateParams): Promise<void>;
     private doOperation;
     operate<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Context<ED>, params?: OperateParams): Promise<OperationResult>;
-    protected formProjection<T extends keyof ED>(entity: T, row: Partial<ED[T]['OpSchema']>, data: ED[T]['Selection']['data'], result: Partial<ED[T]['Schema']>, nodeDict: NodeDict, context: Context<ED>): Promise<void>;
+    protected formProjection<T extends keyof ED>(entity: T, row: Partial<ED[T]['OpSchema']>, data: ED[T]['Selection']['data'], result: object, nodeDict: NodeDict, context: Context<ED>): Promise<void>;
     private formResult;
-    select<T extends keyof ED>(entity: T, selection: ED[T]['Selection'], context: Context<ED>, params?: Object): Promise<SelectionResult<ED, T>>;
+    select<T extends keyof ED, S extends ED[T]['Selection']>(entity: T, selection: S, context: Context<ED>, params?: Object): Promise<SelectionResult2<ED[T]['Schema'], S['data']>>;
     count<T extends keyof ED>(entity: T, selection: Omit<ED[T]['Selection'], "action" | "data" | "sorter">, context: Context<ED>, params?: Object): Promise<number>;
     private addToTxnNode;
     begin(uuid: string): void;
