@@ -1,16 +1,17 @@
 import { assign, cloneDeep, get, last, set, unset } from 'lodash';
 import assert from 'assert';
-import { EntityDef, SelectionResult2, DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation, DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateParams, OpRecord, DeduceCreateOperationData, DeduceUpdateOperationData, UpdateOpResult, RemoveOpResult, SelectOpResult, EntityDict, SelectRowShape } from "oak-domain/lib/types/Entity";
+import { SelectionResult2, DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation, DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateParams, OpRecord, DeduceCreateOperationData, DeduceUpdateOperationData, UpdateOpResult, RemoveOpResult, SelectOpResult, EntityDict, SelectRowShape } from "oak-domain/lib/types/Entity";
 import { ExpressionKey, EXPRESSION_PREFIX, NodeId, RefAttr } from 'oak-domain/lib/types/Demand';
 import { CascadeStore } from 'oak-domain/lib/store/CascadeStore';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
 import { OakError } from 'oak-domain/lib/OakError';
-import { Context } from "./context";
+import { Context } from "oak-domain/lib/types/Context";
 import { ExprResolveFn, NodeDict, RowNode } from "./types/type";
 import { RowStore } from 'oak-domain/lib/types/RowStore';
 import { isRefAttrNode, Q_BooleanValue, Q_FullTextValue, Q_NumberValue, Q_StringValue } from 'oak-domain/lib/types/Demand';
 import { judgeRelation } from 'oak-domain/lib/store/relation';
 import { execOp, Expression, ExpressionConstant, isExpression, opMultipleParams } from 'oak-domain/lib/types/Expression';
+import { v4 } from 'uuid';
 
 
 interface ExprLaterCheckFn {
@@ -87,7 +88,7 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
 
     private constructRow(node: RowNode, context: Context<ED>) {
         let data = cloneDeep(node.$current);
-        if (context.uuid && node.$uuid === context.uuid) {
+        if (context.getCurrentTxnId() && node.$txnId === context.getCurrentTxnId()) {
             if (!node.$next) {
                 return null;
             }
@@ -789,7 +790,7 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
                     $$updateAt$$: data.$$updateAt$$ || now,
                 });
                 const node2: RowNode = {
-                    $uuid: context.uuid!,
+                    $txnId: context.getCurrentTxnId()!,
                     $current: null,
                     $next: data2,
                     $path: `${entity}.${id!}`,
@@ -821,8 +822,8 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
                 ids.forEach(
                     (id) => {
                         const node = (this.store[entity]!)[id as string];
-                        assert(node && (!node.$uuid || node.$uuid === context.uuid));
-                        node.$uuid = context.uuid!;
+                        assert(node && (!node.$txnId || node.$txnId === context.getCurrentTxnId()));
+                        node.$txnId = context.getCurrentTxnId()!;
                         if (action === 'remove') {
                             node.$next = null;
                             node.$path = `${entity}.${id!}`;
@@ -878,7 +879,7 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
 
     async operate<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Context<ED>, params?: OperateParams): Promise<OperationResult> {
         let autoCommit = false;
-        if (!context.uuid) {
+        if (!context.getCurrentTxnId()) {
             autoCommit = true;
             await context.begin();
         }
@@ -1026,7 +1027,7 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
         params?: Object): Promise<SelectionResult2<ED[T]['Schema'], S['data']>> {
         let autoCommit = false;
         let result;
-        if (!context.uuid) {
+        if (!context.getCurrentTxnId()) {
             autoCommit = true;
             await context.begin();
         }
@@ -1060,7 +1061,7 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
     }
 
     private addToTxnNode(node: RowNode, context: Context<ED>, action: 'create' | 'update' | 'remove') {
-        const txnNode = this.activeTxnDict[context.uuid!];
+        const txnNode = this.activeTxnDict[context.getCurrentTxnId()!];
         assert(txnNode);
         assert(!node.$nextNode);
         if (txnNode.nodeHeader) {
@@ -1073,7 +1074,8 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
         txnNode[action]++;
     }
 
-    begin(uuid: string) {
+    async begin() {
+        const uuid = v4({ random: await getRandomValues(16)})
         assert(!this.activeTxnDict.hasOwnProperty(uuid));
         assign(this.activeTxnDict, {
             [uuid]: {
@@ -1082,14 +1084,15 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
                 remove: 0,
             },
         });
+        return uuid;
     }
 
-    commit(uuid: string) {
+    async commit(uuid: string) {
         assert(this.activeTxnDict.hasOwnProperty(uuid));
         let node = this.activeTxnDict[uuid].nodeHeader;
         while (node) {
             const node2 = node.$nextNode;
-            assert(node.$uuid === uuid);
+            assert(node.$txnId === uuid);
             if (node.$next) {
                 // create/update
                 node.$current = assign(node.$current, node.$next);
@@ -1108,12 +1111,12 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
         unset(this.activeTxnDict, uuid);
     }
 
-    rollback(uuid: string) {
+    async rollback(uuid: string) {
         assert(this.activeTxnDict.hasOwnProperty(uuid));
         let node = this.activeTxnDict[uuid].nodeHeader;
         while (node) {
             const node2 = node.$nextNode;
-            assert(node.$uuid === uuid);
+            assert(node.$txnId === uuid);
             if (node.$current) {
                 // update/remove
                 unset(node, '$uuid');
@@ -1134,7 +1137,7 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
     // 将输入的OpRecord同步到数据中
     async sync(opRecords: Array<OpRecord<ED>>, context: Context<ED>) {
         let autoCommit = false;
-        if (!context.uuid) {
+        if (!context.getCurrentTxnId()) {
             await context.begin();
             autoCommit = true;
         }
