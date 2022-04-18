@@ -1,4 +1,4 @@
-import { assign, cloneDeep, get, last, set, unset } from 'lodash';
+import { assign, cloneDeep, get, keys, last, set, unset } from 'lodash';
 import assert from 'assert';
 import { SelectionResult2, DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation, DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateParams, OpRecord, DeduceCreateOperationData, DeduceUpdateOperationData, UpdateOpResult, RemoveOpResult, SelectOpResult, EntityDict, SelectRowShape } from "oak-domain/lib/types/Entity";
 import { ExpressionKey, EXPRESSION_PREFIX, NodeId, RefAttr } from 'oak-domain/lib/types/Demand';
@@ -27,19 +27,24 @@ function obscurePass(row: any, attr: string, params: OperateParams): boolean {
 }
 
 export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
-    store: {
+    private store: {
         [T in keyof ED]?: {
             [ID: string]: RowNode;
         };
     };
-    immutable: boolean;
-    activeTxnDict: {
+    private activeTxnDict: {
         [T: string]: {
             nodeHeader?: RowNode;
             create: number;
             update: number;
             remove: number;
         };
+    };
+    private stat: {
+        create: number;
+        update: number;
+        remove: number;
+        commit: number;
     };
 
     setInitialData(data: {
@@ -52,7 +57,7 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
                 this.store[entity] = {};
             }
             for (const rowId in data[entity]) {
-                set(this.store, `${entity}.${rowId}.#current`, data[entity]![rowId]);
+                set(this.store, `${entity}.${rowId}.$current`, data[entity]![rowId]);
             }
         }
     }
@@ -76,18 +81,28 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
         return result;
     }
 
-    constructor(storageSchema: StorageSchema<ED>, immutable: boolean = false, initialData?: {
+    constructor(storageSchema: StorageSchema<ED>, initialData?: {
         [T in keyof ED]?: {
             [ID: string]: ED[T]['OpSchema'];
         };
+    }, stat?: {
+        create: number;
+        update: number;
+        remove: number;
+        commit: number;
     }) {
         super(storageSchema);
-        this.immutable = immutable;
         this.store = {};
         if (initialData) {
             this.setInitialData(initialData);
         }
         this.activeTxnDict = {};
+        this.stat = stat || {
+            create: 0,
+            update: 0,
+            remove: 0,
+            commit: 0,
+        };
     }
 
     private constructRow(node: RowNode, context: Context<ED>) {
@@ -1104,6 +1119,10 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
         txnNode[action]++;
     }
 
+    getStat() {
+        return this.stat;
+    }
+
     async begin() {
         const uuid = v4({ random: await getRandomValues(16) })
         assert(!this.activeTxnDict.hasOwnProperty(uuid));
@@ -1138,6 +1157,13 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
             }
             node = node2;
         }
+        if (this.activeTxnDict[uuid].create || this.activeTxnDict[uuid].update || this.activeTxnDict[uuid].remove) {
+            this.stat.create += this.activeTxnDict[uuid].create;
+            this.stat.update += this.activeTxnDict[uuid].update;
+            this.stat.remove += this.activeTxnDict[uuid].remove;
+            this.stat.commit ++;
+        }
+
         unset(this.activeTxnDict, uuid);
     }
 
