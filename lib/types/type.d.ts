@@ -1,7 +1,7 @@
 import { NodeId } from "oak-domain/lib/types/Demand";
 import { EntityShape } from "oak-domain/src/types/Entity";
 export declare type RowNode = {
-    $uuid?: string;
+    $txnId?: string;
     $next?: Partial<EntityShape> | null;
     $current?: EntityShape | null;
     $nextNode?: RowNode;

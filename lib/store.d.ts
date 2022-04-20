@@ -1,23 +1,12 @@
 import { SelectionResult2, DeduceCreateSingleOperation, DeduceRemoveOperation, DeduceUpdateOperation, OperationResult, OperateParams, OpRecord, EntityDict } from "oak-domain/lib/types/Entity";
 import { CascadeStore } from 'oak-domain/lib/store/CascadeStore';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
-import { Context } from "./context";
-import { NodeDict, RowNode } from "./types/type";
+import { Context } from "oak-domain/lib/types/Context";
+import { NodeDict } from "./types/type";
 export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
-    store: {
-        [T in keyof ED]?: {
-            [ID: string]: RowNode;
-        };
-    };
-    immutable: boolean;
-    activeTxnDict: {
-        [T: string]: {
-            nodeHeader?: RowNode;
-            create: number;
-            update: number;
-            remove: number;
-        };
-    };
+    private store;
+    private activeTxnDict;
+    private stat;
     setInitialData(data: {
         [T in keyof ED]?: {
             [ID: string]: ED[T]['OpSchema'];
@@ -28,10 +17,15 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
             [ID: string]: ED[T]['OpSchema'];
         };
     };
-    constructor(storageSchema: StorageSchema<ED>, immutable?: boolean, initialData?: {
+    constructor(storageSchema: StorageSchema<ED>, initialData?: {
         [T in keyof ED]?: {
             [ID: string]: ED[T]['OpSchema'];
         };
+    }, stat?: {
+        create: number;
+        update: number;
+        remove: number;
+        commit: number;
     });
     private constructRow;
     private translateLogicFilter;
@@ -60,7 +54,7 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
      * @param context
      */
     private addToResultSelections;
-    protected selectAbjointRow<T extends keyof ED>(entity: T, selection: Omit<ED[T]['Selection'], 'indexFrom' | 'count' | 'data' | 'sorter'>, context: Context<ED>, params?: Object): Promise<Array<ED[T]['OpSchema']>>;
+    protected selectAbjointRow<T extends keyof ED>(entity: T, selection: Omit<ED[T]['Selection'], 'indexFrom' | 'count' | 'data' | 'sorter'>, context: Context<ED>, params?: OperateParams): Promise<Array<ED[T]['OpSchema']>>;
     protected updateAbjointRow<T extends keyof ED>(entity: T, operation: DeduceCreateSingleOperation<ED[T]['Schema']> | DeduceUpdateOperation<ED[T]['Schema']> | DeduceRemoveOperation<ED[T]['Schema']>, context: Context<ED>, params?: OperateParams): Promise<void>;
     private doOperation;
     operate<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Context<ED>, params?: OperateParams): Promise<OperationResult>;
@@ -69,8 +63,14 @@ export default class TreeStore<ED extends EntityDict> extends CascadeStore<ED> {
     select<T extends keyof ED, S extends ED[T]['Selection']>(entity: T, selection: S, context: Context<ED>, params?: Object): Promise<SelectionResult2<ED[T]['Schema'], S['data']>>;
     count<T extends keyof ED>(entity: T, selection: Omit<ED[T]['Selection'], "action" | "data" | "sorter">, context: Context<ED>, params?: Object): Promise<number>;
     private addToTxnNode;
-    begin(uuid: string): void;
-    commit(uuid: string): void;
-    rollback(uuid: string): void;
+    getStat(): {
+        create: number;
+        update: number;
+        remove: number;
+        commit: number;
+    };
+    begin(): Promise<string>;
+    commit(uuid: string): Promise<void>;
+    rollback(uuid: string): Promise<void>;
     sync(opRecords: Array<OpRecord<ED>>, context: Context<ED>): Promise<void>;
 }
