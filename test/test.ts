@@ -2,17 +2,17 @@ import { v4 } from 'uuid';
 import { describe, it } from 'mocha';
 import TreeStore from '../src/store';
 import { EntityDict } from './app-domain/EntityDict';
-import { Context } from '../src/context';
 import { storageSchema } from './app-domain/Storage';
 import assert from 'assert';
 import { CreateSingleOperation } from './app-domain/System/Schema';
+import { UniversalContext } from 'oak-domain/lib/store/UniversalContext';
 
 describe('基础测试', function () {
     this.timeout(1000000);
 
     it('[1.0]简单查询', async () => {
-        const store = new TreeStore<EntityDict>(storageSchema);
-        const context = new Context(store);
+        const store = new TreeStore<EntityDict, UniversalContext<EntityDict>>(storageSchema);
+        const context = new UniversalContext(store);
         const created = await store.operate('application', {
             action: 'create',
             data: [{
@@ -73,8 +73,8 @@ describe('基础测试', function () {
     });
 
     it('[1.1]子查询', async () => {
-        const store = new TreeStore<EntityDict>(storageSchema);
-        const context = new Context(store);
+        const store = new TreeStore<EntityDict, UniversalContext<EntityDict>>(storageSchema);
+        const context = new UniversalContext(store);
 
         await store.operate('user', {
             action: 'create',
@@ -115,8 +115,8 @@ describe('基础测试', function () {
     });
 
     it('[1.2]行内属性上的表达式', async () => {
-        const store = new TreeStore<EntityDict>(storageSchema);
-        const context = new Context(store);
+        const store = new TreeStore<EntityDict, UniversalContext<EntityDict>>(storageSchema);
+        const context = new UniversalContext(store);
 
         await store.operate('user', {
             action: 'create',
@@ -149,8 +149,8 @@ describe('基础测试', function () {
     });
 
     it('[1.3]跨filter结点的表达式', async () => {
-        const store = new TreeStore<EntityDict>(storageSchema);
-        const context = new Context(store);
+        const store = new TreeStore<EntityDict, UniversalContext<EntityDict>>(storageSchema);
+        const context = new UniversalContext(store);
 
         await store.operate('application', {
             action: 'create',
@@ -227,8 +227,8 @@ describe('基础测试', function () {
 
 
     it('[1.4]跨filter子查询的表达式', async () => {
-        const store = new TreeStore<EntityDict>(storageSchema);
-        const context = new Context(store);
+        const store = new TreeStore<EntityDict, UniversalContext<EntityDict>>(storageSchema);
+        const context = new UniversalContext(store);
 
         await store.operate('application', {
             action: 'create',
@@ -345,8 +345,8 @@ describe('基础测试', function () {
     });
 
     it('[1.5]projection中的跨结点表达式', async () => {
-        const store = new TreeStore<EntityDict>(storageSchema);
-        const context = new Context(store);
+        const store = new TreeStore<EntityDict, UniversalContext<EntityDict>>(storageSchema);
+        const context = new UniversalContext(store);
 
         await store.operate('application', {
             action: 'create',
@@ -445,8 +445,8 @@ describe('基础测试', function () {
     });
 
     it('[1.6]projection中的一对多跨结点表达式', async () => {
-        const store = new TreeStore<EntityDict>(storageSchema);
-        const context = new Context(store);
+        const store = new TreeStore<EntityDict, UniversalContext<EntityDict>>(storageSchema);
+        const context = new UniversalContext(store);
 
         await store.operate('system', {
             action: 'create',
@@ -518,8 +518,8 @@ describe('基础测试', function () {
     });
 
     it('[1.7]事务性测试', async () => {
-        const store = new TreeStore<EntityDict>(storageSchema);
-        const context = new Context(store);
+        const store = new TreeStore<EntityDict, UniversalContext<EntityDict>>(storageSchema);
+        const context = new UniversalContext(store);
 
         await store.operate('system', {
             action: 'create',
