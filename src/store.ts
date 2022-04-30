@@ -154,6 +154,16 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                 };
 
             }
+            case '$not': {
+                const filter2 = filter[attr];
+                const fn = this.translateFilter(entity, filter2!, context, params);
+                return async (node, nodeDict, exprResolveFns) => {
+                    if (await (await fn)(node, nodeDict, exprResolveFns)) {
+                        return false;
+                    }
+                    return true;
+                }
+            }
             default: {
                 assert(false, `${attr}算子暂不支持`);
             }
@@ -1108,13 +1118,15 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
     private addToTxnNode(node: RowNode, context: Cxt, action: 'create' | 'update' | 'remove') {
         const txnNode = this.activeTxnDict[context.getCurrentTxnId()!];
         assert(txnNode);
-        assert(!node.$nextNode);
-        if (txnNode.nodeHeader) {
-            node.$nextNode = txnNode.nodeHeader;
-            txnNode.nodeHeader = node;
-        }
-        else {
-            txnNode.nodeHeader = node;
+        if(!node.$nextNode) {
+            // 如果nextNode有值，说明这个结点已经在链表中了
+            if (txnNode.nodeHeader) {
+                node.$nextNode = txnNode.nodeHeader;
+                txnNode.nodeHeader = node;
+            }
+            else {
+                txnNode.nodeHeader = node;
+            }
         }
         txnNode[action]++;
     }
