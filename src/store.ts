@@ -1,6 +1,6 @@
 import { assign, cloneDeep, get, keys, last, set, unset } from 'lodash';
 import assert from 'assert';
-import { DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation, DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateParams, OpRecord, DeduceCreateOperationData, DeduceUpdateOperationData, UpdateOpResult, RemoveOpResult, SelectOpResult, EntityDict, SelectRowShape } from "oak-domain/lib/types/Entity";
+import { DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation, DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateParams, OpRecord, DeduceCreateOperationData, DeduceUpdateOperationData, UpdateOpResult, RemoveOpResult, SelectOpResult, EntityDict, SelectRowShape, SelectionResult } from "oak-domain/lib/types/Entity";
 import { ExpressionKey, EXPRESSION_PREFIX, NodeId, RefAttr } from 'oak-domain/lib/types/Demand';
 import { CascadeStore } from 'oak-domain/lib/store/CascadeStore';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
@@ -1079,7 +1079,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         entity: T,
         selection: S,
         context: Cxt,
-        params?: Object) {
+        params?: Object) : Promise<SelectionResult<ED[T]['Schema'], S['data']>> {
         let autoCommit = false;
         let result;
         if (!context.getCurrentTxnId()) {
@@ -1136,7 +1136,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
     }
 
     async begin() {
-        const uuid = v4({ random: await getRandomValues(16) })
+        const uuid = `${Math.random()}`;
         assert(!this.activeTxnDict.hasOwnProperty(uuid));
         assign(this.activeTxnDict, {
             [uuid]: {

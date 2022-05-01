@@ -4,7 +4,7 @@ import TreeStore from '../src/store';
 import { EntityDict } from './app-domain/EntityDict';
 import { storageSchema } from './app-domain/Storage';
 import assert from 'assert';
-import { CreateSingleOperation } from './app-domain/System/Schema';
+import { CreateSingleOperation, CreateOperationData } from './app-domain/System/Schema';
 import { UniversalContext } from 'oak-domain/lib/store/UniversalContext';
 
 describe('基础测试', function () {
@@ -20,6 +20,10 @@ describe('基础测试', function () {
                 name: 'test',
                 description: 'ttttt',
                 type: 'web',
+                config: {
+                    type: 'web',
+                    domain: 'http://www.tt.com',
+                },
                 system: {
                     action: 'create',
                     data: {
@@ -34,6 +38,10 @@ describe('基础测试', function () {
                 name: 'test2',
                 description: 'ttttt2',
                 type: 'web',
+                config: {
+                    type: 'web',
+                    domain: 'http://www.tt.com',
+                },
                 system: {
                     action: 'create',
                     data: {
@@ -159,6 +167,10 @@ describe('基础测试', function () {
                 name: 'test',
                 description: 'ttttt',
                 type: 'web',
+                config: {
+                    type: 'web',
+                    domain: 'http://www.tt.com',
+                },
                 system: {
                     action: 'create',
                     data: {
@@ -173,6 +185,10 @@ describe('基础测试', function () {
                 name: 'test2',
                 description: 'ttttt2',
                 type: 'web',
+                config: {
+                    type: 'web',
+                    domain: 'http://www.tt.com',
+                },
                 system: {
                     action: 'create',
                     data: {
@@ -237,6 +253,10 @@ describe('基础测试', function () {
                 name: 'test',
                 description: 'ttttt',
                 type: 'web',
+                config: {
+                    type: 'web',
+                    domain: 'http://www.tt.com',
+                },
                 system: {
                     action: 'create',
                     data: {
@@ -251,6 +271,10 @@ describe('基础测试', function () {
                 name: 'test2',
                 description: 'ttttt2',
                 type: 'web',
+                config: {
+                    type: 'web',
+                    domain: 'http://www.tt.com',
+                },
                 system: {
                     action: 'create',
                     data: {
@@ -355,6 +379,10 @@ describe('基础测试', function () {
                 name: 'test',
                 description: 'ttttt',
                 type: 'web',
+                config: {
+                    type: 'web',
+                    domain: 'http://www.tt.com',
+                },
                 system: {
                     action: 'create',
                     data: {
@@ -369,6 +397,10 @@ describe('基础测试', function () {
                 name: 'test2',
                 description: 'ttttt2',
                 type: 'web',
+                config: {
+                    type: 'web',
+                    domain: 'http://www.tt.com',
+                },
                 system: {
                     action: 'create',
                     data: {
@@ -455,7 +487,7 @@ describe('基础测试', function () {
                 name: 'test2',
                 description: 'aaaaa',
                 config: {},
-                application$system: {
+                application$system: [{
                     action: 'create',
                     data: [
                         {
@@ -463,16 +495,24 @@ describe('基础测试', function () {
                             name: 'test',
                             description: 'ttttt',
                             type: 'web',
+                            config: {
+                                type: 'web',
+                                domain: 'http://www.tt.com',
+                            },
                         },
                         {
 
                             id: 'aaa2',
                             name: 'test2',
                             description: 'ttttt2',
-                            type: 'weChatMp',
+                            type: 'wechatMp',
+                            config: {
+                                type: 'web',
+                                domain: 'http://www.tt.com',
+                            },
                         }
                     ]
-                }
+                }]
             }
         }, context);
 
@@ -482,6 +522,7 @@ describe('基础测试', function () {
                 id: 1,
                 name: 1,
                 application$system: {
+                    $entity: 'application',
                     data: {
                         id: 1,
                         name: 1,
@@ -505,7 +546,7 @@ describe('基础测试', function () {
             },
         }, context);
         // console.log(systems);
-        assert(systems.result.length === 1);
+        assert(systems.result.length === 1);    
         const [ system ] = systems.result;
         const { application$system: applications }  = system;
         assert(applications!.length === 2);
@@ -528,7 +569,7 @@ describe('基础测试', function () {
                 name: 'test2',
                 description: 'aaaaa',
                 config: {},
-                application$system: {
+                application$system: [{
                     action: 'create',
                     data: [
                         {
@@ -536,16 +577,24 @@ describe('基础测试', function () {
                             name: 'test',
                             description: 'ttttt',
                             type: 'web',
+                            config: {
+                                type: 'web',
+                                domain: 'http://www.tt.com',
+                            },
                         },
                         {
 
                             id: 'aaa2',
                             name: 'test2',
                             description: 'ttttt2',
-                            type: 'weChatMp',
+                            type: 'wechatMp',
+                            config: {
+                                type: 'web',
+                                domain: 'http://www.tt.com',
+                            },
                         }
                     ]
-                }
+                }] as CreateOperationData['application$system']
             }
         }, context);
 
@@ -555,6 +604,7 @@ describe('基础测试', function () {
                 id: 1,
                 name: 1,
                 application$system: {
+                    $entity: 'application',
                     data: {
                         id: 1,
                         name: 1,
@@ -577,6 +627,7 @@ describe('基础测试', function () {
                 id: 1,
                 name: 1,
                 application$system: {
+                    $entity: 'application',
                     data: {
                         id: 1,
                         name: 1,
@@ -592,6 +643,7 @@ describe('基础测试', function () {
                 id: 1,
                 name: 1,
                 application$system: {
+                    $entity: 'application',
                     data: {
                         id: 1,
                         name: 1,

@@ -1,4 +1,4 @@
-import { DeduceCreateSingleOperation, DeduceRemoveOperation, DeduceUpdateOperation, OperationResult, OperateParams, OpRecord, EntityDict, SelectRowShape } from "oak-domain/lib/types/Entity";
+import { DeduceCreateSingleOperation, DeduceRemoveOperation, DeduceUpdateOperation, OperationResult, OperateParams, OpRecord, EntityDict, SelectionResult } from "oak-domain/lib/types/Entity";
 import { CascadeStore } from 'oak-domain/lib/store/CascadeStore';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
 import { Context } from "oak-domain/lib/types/Context";
@@ -60,9 +60,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
     operate<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Cxt, params?: OperateParams): Promise<OperationResult>;
     protected formProjection<T extends keyof ED>(entity: T, row: Partial<ED[T]['OpSchema']>, data: ED[T]['Selection']['data'], result: object, nodeDict: NodeDict, context: Cxt): Promise<void>;
     private formResult;
-    select<T extends keyof ED, S extends ED[T]['Selection']>(entity: T, selection: S, context: Cxt, params?: Object): Promise<{
-        result: SelectRowShape<ED[T]["Schema"], ED[T]["Selection"]["data"]>[];
-    }>;
+    select<T extends keyof ED, S extends ED[T]['Selection']>(entity: T, selection: S, context: Cxt, params?: Object): Promise<SelectionResult<ED[T]['Schema'], S['data']>>;
     count<T extends keyof ED>(entity: T, selection: Omit<ED[T]['Selection'], "action" | "data" | "sorter">, context: Cxt, params?: Object): Promise<number>;
     private addToTxnNode;
     getStat(): {
