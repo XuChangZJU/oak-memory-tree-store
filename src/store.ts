@@ -1,6 +1,6 @@
 import { assign, cloneDeep, get, keys, last, set, unset } from 'lodash';
 import assert from 'assert';
-import { DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation, DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateParams, OpRecord, DeduceCreateOperationData, DeduceUpdateOperationData, UpdateOpResult, RemoveOpResult, SelectOpResult, EntityDict, SelectRowShape, SelectionResult } from "oak-domain/lib/types/Entity";
+import { DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation, DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateParams, OpRecord, DeduceCreateOperationData, DeduceUpdateOperationData, UpdateOpResult, RemoveOpResult, SelectOpResult, EntityDict, SelectRowShape, SelectionResult, DeduceSorterItem } from "oak-domain/lib/types/Entity";
 import { ExpressionKey, EXPRESSION_PREFIX, NodeId, RefAttr } from 'oak-domain/lib/types/Demand';
 import { CascadeStore } from 'oak-domain/lib/store/CascadeStore';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
@@ -186,7 +186,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         entity: T,
         expression: Expression<keyof ED[T]['Schema']> | RefAttr<keyof ED[T]['Schema']> | ExpressionConstant,
         context: Cxt,
-        params: OperateParams): ExprNodeTranslator | ExpressionConstant {
+        params2?: OperateParams): ExprNodeTranslator | ExpressionConstant {
 
         if (isExpression(expression)) {
             const op = Object.keys(expression)[0];
@@ -228,7 +228,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                         if (results.find(ele => typeof ele === 'function')) {
                             return laterCheckFn;
                         }
-                        return execOp(op, results, params.obscure);
+                        return execOp(op, results, params2 && params2.obscure);
                     };
                     return laterCheckFn;
                 }
@@ -296,7 +296,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
     private translateExpression<T extends keyof ED>(
         entity: T,
         expression: Expression<keyof ED[T]['Schema']>,
-        context: Cxt, params: OperateParams): (row: Partial<ED[T]['OpSchema']>, nodeDict: NodeDict) => Promise<ExpressionConstant | ExprLaterCheckFn> {
+        context: Cxt, params?: OperateParams): (row: Partial<ED[T]['OpSchema']>, nodeDict: NodeDict) => Promise<ExpressionConstant | ExprLaterCheckFn> {
         const expr = this.translateExpressionNode(entity, expression, context, params);
 
         return async (row, nodeDict) => {
@@ -644,7 +644,11 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         };
     }
 
-    private translateSorter<T extends keyof ED>(entity: T, sorter: DeduceSorter<ED[T]['Schema']>, context: Cxt):
+    private translateSorter<T extends keyof ED>(
+        entity: T,
+        sorter: DeduceSorter<ED[T]['Schema']>,
+        context: Cxt,
+        params?: OperateParams):
         (row1: object | null | undefined, row2: object | null | undefined) => number {
         const compare = <T2 extends keyof ED>(
             row1: object | null | undefined,
@@ -657,9 +661,19 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
             const attr = Object.keys(sortAttr)[0];
 
             const relation = judgeRelation(this.storageSchema, entity2, attr);
-            if (relation === 1) {
-                const v1 = row1 && row11[attr];
-                const v2 = row2 && row22[attr];
+            if (relation === 1 || relation === 0) {
+                const getAttrOrExprValue = (r: any) => {
+                    if (sortAttr[attr] === 1) {
+                        return r[attr];
+                    }
+                    else {
+                        // 改变策略，让所有需要获得的值在projection上取得
+                        assert(typeof sortAttr[attr] === 'string' && (sortAttr[attr] as any).startsWith('$expr'));
+                        return r[sortAttr[attr] as any];
+                    }
+                }
+                const v1 = row1 && getAttrOrExprValue(row11);
+                const v2 = row2 && getAttrOrExprValue(row22);
                 if ([null, undefined].includes(v1) || [null, undefined].includes(v2)) {
                     if ([null, undefined].includes(v1) && [null, undefined].includes(v2)) {
                         return 0;
@@ -920,7 +934,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         if (action === 'select') {
             const rows = await this.cascadeSelect(entity, operation as any, context, params);
 
-            const result = await this.formResult(entity, rows, operation as any, context);
+            const result = await this.formResult(entity, rows, operation as any, context, params);
             const ids = result.map(
                 (ele) => ele.id!
             ) as string[];
@@ -1046,8 +1060,54 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         rows: Array<Partial<ED[T]['Schema']>>,
         selection: Omit<S, 'filter'>,
         context: Cxt,
+        params?: OperateParams,
         nodeDict?: NodeDict) {
         const { data, sorter, indexFrom, count } = selection;
+        // 要把sorter中的expr运算提到这里做掉，否则异步运算无法排序
+        
+        const findAvailableExprName = (current: string[]) => {
+            let counter = 1;
+            while (counter < 20) {
+                const exprName = `$expr${counter++}`;
+                if (!current.includes(exprName)) {
+                    return exprName;
+                }
+            }
+            assert(false, '找不到可用的expr命名');
+        }
+        const copyExprNode = <T2 extends keyof ED>(entity2: T2, proj: ED[T2]['Selection']['data'], sort: any) => {
+            Object.keys(sort).forEach(
+                (attr) => {
+                    if (attr.startsWith('$expr') && typeof sort[attr] === 'object') {
+                        const attrName = findAvailableExprName(Object.keys(proj));
+                        Object.assign(proj, {
+                            [attrName]: sort[attr],
+                        });
+                        Object.assign(sort, {
+                            [attr]: attrName,
+                        });
+                    }
+                    const rel = judgeRelation(this.storageSchema, entity2, attr);
+                    if (rel === 2 || typeof rel === 'string') {
+                        if (!proj[attr]) {
+                            Object.assign(proj, {
+                                [attr]: {},
+                            });
+                        }
+                        const entity3 = typeof rel === 'string' ? rel : attr;
+                        copyExprNode(entity3, proj[attr], sort[attr]);
+                    }
+                }
+            )
+        };
+        if (sorter) {
+            sorter.forEach(
+                (ele) => {
+                    copyExprNode(entity, data, ele.$attr)
+                }
+            );
+        }
+
         // 先计算projection
         const rows2: Array<SelectRowShape<ED[T]['Schema'], S['data']>> = [];
         for (const row of rows) {
@@ -1062,7 +1122,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
 
         // 再计算sorter
         if (sorter) {
-            const sorterFn = this.translateSorter(entity, sorter, context);
+            const sorterFn = this.translateSorter(entity, sorter, context, params);
             rows2.sort(sorterFn);
         }
 
@@ -1089,7 +1149,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         try {
             const rows = await this.cascadeSelect(entity, selection, context, params);
 
-            result = await this.formResult(entity, rows, selection, context);
+            result = await this.formResult(entity, rows, selection, context, params);
         } catch (err) {
             if (autoCommit) {
                 await context.rollback();
