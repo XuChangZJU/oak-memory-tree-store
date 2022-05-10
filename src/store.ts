@@ -1153,19 +1153,25 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         let node = this.activeTxnDict[uuid].nodeHeader;
         while (node) {
             const node2 = node.$nextNode;
-            assert(node.$txnId === uuid);
-            if (node.$next) {
-                // create/update
-                node.$current = assign(node.$current, node.$next);
-                unset(node, '$txnId');
-                unset(node, '$next');
-                unset(node, '$path');
-                unset(node, '$nextNode');
+            if (node.$txnId === uuid) {
+                if (node.$next) {
+                    // create/update
+                    node.$current = assign(node.$current, node.$next);
+                    unset(node, '$txnId');
+                    unset(node, '$next');
+                    unset(node, '$path');
+                    unset(node, '$nextNode');
+                }
+                else {
+                    // remove
+                    assert(node.$path);
+                    unset(this.store, node.$path);
+                    unset(node, '$txnId');
+                }
             }
             else {
-                // remove
-                assert(node.$path);
-                unset(this.store, node.$path);
+                // 同一行被同一事务更新多次
+                assert(node.$txnId === undefined);
             }
             node = node2;
         }
@@ -1184,18 +1190,24 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         let node = this.activeTxnDict[uuid].nodeHeader;
         while (node) {
             const node2 = node.$nextNode;
-            assert(node.$txnId === uuid);
-            if (node.$current) {
-                // update/remove
-                unset(node, '$txnId');
-                unset(node, '$next');
-                unset(node, '$path');
-                unset(node, '$nextNode');
+            if (node.$txnId === uuid) {
+                if (node.$current) {
+                    // update/remove
+                    unset(node, '$txnId');
+                    unset(node, '$next');
+                    unset(node, '$path');
+                    unset(node, '$nextNode');
+                }
+                else {
+                    // create
+                    assert(node.$path);
+                    unset(this.store, node.$path);
+                    unset(node, '$txnId');
+                }
             }
             else {
-                // create
-                assert(node.$path);
-                unset(this.store, node.$path);
+                // 该结点被同一事务反复处理
+                assert(node.$txnId === undefined);
             }
             node = node2;
         }
