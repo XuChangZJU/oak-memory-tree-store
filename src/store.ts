@@ -1106,13 +1106,13 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
     }
 
     async count<T extends keyof ED>(entity: T, selection: Omit<ED[T]['Selection'], "action" | "data" | "sorter">, context: Cxt, params?: Object): Promise<number> {
-        const rows = await this.cascadeSelect(entity, assign({}, selection, {
+        const { result } = await this.select(entity, assign({}, selection, {
             data: {
                 id: 1,
             }
         }) as any, context, params);
 
-        return rows.length;
+        return result.length;
     }
 
     private addToTxnNode(node: RowNode, context: Cxt, action: 'create' | 'update' | 'remove') {
