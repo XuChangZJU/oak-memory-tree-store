@@ -890,13 +890,23 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                 const ids = rows.map(ele => ele.id);
                 ids.forEach(
                     (id) => {
+                        let alreadyDirtyNode = false;
                         const node = (this.store[entity]!)[id as string];
-                        assert(node && (!node.$txnId || node.$txnId === context.getCurrentTxnId()));
-                        node.$txnId = context.getCurrentTxnId()!;
+                        assert(node);
+                        if (!node.$txnId) {
+                            node.$txnId = context.getCurrentTxnId()!;                                                        
+                        }
+                        else {
+                            assert(node.$txnId === context.getCurrentTxnId());
+                            alreadyDirtyNode = true;
+                        }
                         if (action === 'remove') {
                             node.$next = null;
                             node.$path = `${entity}.${id!}`;
-                            this.addToTxnNode(node, context, 'remove');
+                            if (!alreadyDirtyNode) {
+                                // 如果已经更新过的结点就不能再加了，会形成循环
+                                this.addToTxnNode(node, context, 'remove');
+                            }
                             if (!params || !params.notCollect) {
                                 context.opRecords.push({
                                     a: 'r',
@@ -912,7 +922,10 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                             });
                             const data3 = assign(row, data2);
                             node.$next = data3;
-                            this.addToTxnNode(node, context, 'update');
+                            if (!alreadyDirtyNode) {
+                                // 如果已经更新过的结点就不能再加了，会形成循环
+                                this.addToTxnNode(node, context, 'remove');
+                            }
                             if (!params || !params.notCollect) {
                                 context.opRecords.push({
                                     a: 'u',
