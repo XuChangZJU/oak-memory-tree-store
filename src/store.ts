@@ -382,19 +382,19 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                 }
                 case '$startsWith': {
                     fns.push(async (row) => {
-                        return row && (row[attr].startsWith((filter as any)[op]) || obscurePassLocal(row));
+                        return row && (row[attr]?.startsWith((filter as any)[op]) || obscurePassLocal(row));
                     });
                     break;
                 }
                 case '$endsWith': {
                     fns.push(async (row) => {
-                        return row && (row[attr].$endsWith((filter as any)[op]) || obscurePassLocal(row));
+                        return row && (row[attr]?.$endsWith((filter as any)[op]) || obscurePassLocal(row));
                     });
                     break;
                 }
                 case '$includes': {
                     fns.push(async (row) => {
-                        return row && (row[attr].includes((filter as any)[op]) || obscurePassLocal(row));
+                        return row && (row[attr]?.includes((filter as any)[op]) || obscurePassLocal(row));
                     });
                     break;
                 }
