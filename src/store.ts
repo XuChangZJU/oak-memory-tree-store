@@ -842,7 +842,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         entity: T,
         operation: DeduceCreateSingleOperation<ED[T]['Schema']> | DeduceUpdateOperation<ED[T]['Schema']> | DeduceRemoveOperation<ED[T]['Schema']>,
         context: Cxt,
-        params?: OperateParams): Promise<void> {
+        params?: OperateParams): Promise<number> {
         const { data, action } = operation;
 
         const now = Date.now();
@@ -876,7 +876,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                         d: data2,
                     });
                 }
-                break;
+                return 1;
             }
             default: {
                 const selection = assign({}, operation, {
@@ -937,29 +937,33 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                         }
                     }
                 );
-                break;
+                return rows.length;
             }
         }
     }
 
-    private async doOperation<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Cxt, params?: OperateParams): Promise<OperationResult> {
+    private async doOperation<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Cxt, params?: OperateParams): Promise<OperationResult<ED>> {
         const { action } = operation;
         if (action === 'select') {
             const rows = await this.cascadeSelect(entity, operation as any, context, params);
 
             const result = await this.formResult(entity, rows, operation as any, context, params);
-            const ids = result.map(
-                (ele) => ele.id!
-            ) as string[];
-            return { ids };
+           
+            const operationResult: OperationResult<ED> = {};
+            assign(operationResult, {
+                [entity]: {
+                    select: result.length,
+                }
+            });
+            
+            return operationResult;
         }
         else {
-            await this.cascadeUpdate(entity, operation as any, context, params);
-            return {};
+            return await this.cascadeUpdate(entity, operation as any, context, params);            
         }
     }
 
-    async operate<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Cxt, params?: OperateParams): Promise<OperationResult> {
+    async operate<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Cxt, params?: OperateParams): Promise<OperationResult<ED>> {
         let autoCommit = false;
         if (!context.getCurrentTxnId()) {
             autoCommit = true;

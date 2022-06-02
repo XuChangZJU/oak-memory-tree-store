@@ -55,9 +55,9 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
      */
     private addToResultSelections;
     protected selectAbjointRow<T extends keyof ED>(entity: T, selection: Omit<ED[T]['Selection'], 'indexFrom' | 'count' | 'data' | 'sorter'>, context: Cxt, params?: OperateParams): Promise<Array<ED[T]['OpSchema']>>;
-    protected updateAbjointRow<T extends keyof ED>(entity: T, operation: DeduceCreateSingleOperation<ED[T]['Schema']> | DeduceUpdateOperation<ED[T]['Schema']> | DeduceRemoveOperation<ED[T]['Schema']>, context: Cxt, params?: OperateParams): Promise<void>;
+    protected updateAbjointRow<T extends keyof ED>(entity: T, operation: DeduceCreateSingleOperation<ED[T]['Schema']> | DeduceUpdateOperation<ED[T]['Schema']> | DeduceRemoveOperation<ED[T]['Schema']>, context: Cxt, params?: OperateParams): Promise<number>;
     private doOperation;
-    operate<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Cxt, params?: OperateParams): Promise<OperationResult>;
+    operate<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Cxt, params?: OperateParams): Promise<OperationResult<ED>>;
     protected formProjection<T extends keyof ED>(entity: T, row: Partial<ED[T]['OpSchema']>, data: ED[T]['Selection']['data'], result: object, nodeDict: NodeDict, context: Cxt): Promise<void>;
     private formResult;
     select<T extends keyof ED, S extends ED[T]['Selection']>(entity: T, selection: S, context: Cxt, params?: Object): Promise<SelectionResult<ED[T]['Schema'], S['data']>>;
