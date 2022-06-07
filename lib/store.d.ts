@@ -1,4 +1,4 @@
-import { DeduceCreateSingleOperation, DeduceRemoveOperation, DeduceUpdateOperation, OperationResult, OperateParams, OpRecord, EntityDict, SelectionResult } from "oak-domain/lib/types/Entity";
+import { DeduceCreateSingleOperation, DeduceRemoveOperation, DeduceUpdateOperation, OperationResult, OperateParams, OpRecord, EntityDict, SelectRowShape, SelectionResult } from "oak-domain/lib/types/Entity";
 import { CascadeStore } from 'oak-domain/lib/store/CascadeStore';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
 import { Context } from "oak-domain/lib/types/Context";
@@ -7,6 +7,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
     private store;
     private activeTxnDict;
     private stat;
+    protected supportManyToOneJoin(): boolean;
     setInitialData(data: {
         [T in keyof ED]?: {
             [ID: string]: ED[T]['OpSchema'];
@@ -54,7 +55,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
      * @param context
      */
     private addToResultSelections;
-    protected selectAbjointRow<T extends keyof ED>(entity: T, selection: Omit<ED[T]['Selection'], 'indexFrom' | 'count' | 'data' | 'sorter'>, context: Cxt, params?: OperateParams): Promise<Array<ED[T]['OpSchema']>>;
+    protected selectAbjointRow<T extends keyof ED, S extends ED[T]['Selection']>(entity: T, selection: S, context: Cxt, params?: OperateParams): Promise<SelectRowShape<ED[T]['Schema'], S['data']>[]>;
     protected updateAbjointRow<T extends keyof ED>(entity: T, operation: DeduceCreateSingleOperation<ED[T]['Schema']> | DeduceUpdateOperation<ED[T]['Schema']> | DeduceRemoveOperation<ED[T]['Schema']>, context: Cxt, params?: OperateParams): Promise<number>;
     private doOperation;
     operate<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Cxt, params?: OperateParams): Promise<OperationResult<ED>>;

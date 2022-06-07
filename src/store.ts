@@ -47,6 +47,10 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         commit: number;
     };
 
+    protected supportManyToOneJoin(): boolean {
+        return false;
+    }
+
     setInitialData(data: {
         [T in keyof ED]?: {
             [ID: string]: ED[T]['OpSchema'];
@@ -791,11 +795,11 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         });
     }
 
-    protected async selectAbjointRow<T extends keyof ED>(
+    protected async selectAbjointRow<T extends keyof ED, S extends ED[T]['Selection']>(
         entity: T,
-        selection: Omit<ED[T]['Selection'], 'indexFrom' | 'count' | 'data' | 'sorter'>,
+        selection: S,
         context: Cxt,
-        params: OperateParams = {}): Promise<Array<ED[T]['OpSchema']>> {
+        params: OperateParams = {}): Promise<SelectRowShape<ED[T]['Schema'], S['data']>[]> {
         const { filter } = selection;
         const { nodeDict } = params as {
             nodeDict: NodeDict;
@@ -835,7 +839,9 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         );
 
         this.addToResultSelections(entity, rows, context);
-        return rows;
+
+        const rows2 = await this.formResult(entity, rows, selection, context, params);
+        return rows2;
     }
 
     protected async updateAbjointRow<T extends keyof ED>(
@@ -945,7 +951,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
     private async doOperation<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Cxt, params?: OperateParams): Promise<OperationResult<ED>> {
         const { action } = operation;
         if (action === 'select') {
-            const rows = await this.cascadeSelect(entity, operation as any, context, params);
+            /* const rows = await this.cascadeSelect(entity, operation as any, context, params);
 
             const result = await this.formResult(entity, rows, operation as any, context, params);
            
@@ -956,7 +962,8 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                 }
             });
             
-            return operationResult;
+            return operationResult; */
+            throw new Error('现在不支持使用select operation');
         }
         else {
             return await this.cascadeUpdate(entity, operation as any, context, params);            
@@ -1075,7 +1082,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
     private async formResult<T extends keyof ED, S extends ED[T]['Selection']>(
         entity: T,
         rows: Array<Partial<ED[T]['Schema']>>,
-        selection: Omit<S, 'filter'>,
+        selection: S,
         context: Cxt,
         params?: OperateParams,
         nodeDict?: NodeDict) {
@@ -1158,15 +1165,13 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         context: Cxt,
         params?: Object) : Promise<SelectionResult<ED[T]['Schema'], S['data']>> {
         let autoCommit = false;
-        let result;
+        let result: SelectRowShape<ED[T]['Schema'], S['data']>[];
         if (!context.getCurrentTxnId()) {
             autoCommit = true;
             await context.begin();
         }
         try {
-            const rows = await this.cascadeSelect(entity, selection, context, params);
-
-            result = await this.formResult(entity, rows, selection, context, params);
+            result = await this.cascadeSelect(entity, selection, context, params);
         } catch (err) {
             if (autoCommit) {
                 await context.rollback();
