@@ -868,12 +868,12 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                     $txnId: context.getCurrentTxnId()!,
                     $current: null,
                     $next: data2,
-                    $path: `${entity}.${id!}`,
+                    $path: `${entity as string}.${id!}`,
                 };
                 if (!this.store[entity]) {
                     this.store[entity] = {};
                 }
-                set(this.store, `${entity}.${id!}`, node2);
+                set(this.store, `${entity as string}.${id!}`, node2);
                 this.addToTxnNode(node2, context, 'create');
                 if (!params || !params.notCollect) {
                     context.opRecords.push({
@@ -908,7 +908,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                         }
                         if (action === 'remove') {
                             node.$next = null;
-                            node.$path = `${entity}.${id!}`;
+                            node.$path = `${entity as string}.${id!}`;
                             if (!alreadyDirtyNode) {
                                 // 如果已经更新过的结点就不能再加了，会形成循环
                                 this.addToTxnNode(node, context, 'remove');
