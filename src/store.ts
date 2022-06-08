@@ -1059,12 +1059,13 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                 }
                 else {
                     assert(relation instanceof Array);
-                    assert(row2[attr] instanceof Array);
-                    const result2 = await this.formResult(relation[0], row2[attr], data2[attr], context, nodeDict);
+                    if (row2[attr] instanceof Array) {
+                        const result2 = await this.formResult(relation[0], row2[attr], data2[attr], context, nodeDict);
 
-                    assign(result, {
-                        [attr]: result2,
-                    });
+                        assign(result, {
+                            [attr]: result2,
+                        });
+                    }
                 }
             }
         }
