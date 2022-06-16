@@ -7,6 +7,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
     private store;
     private activeTxnDict;
     private stat;
+    protected supportMultipleCreate(): boolean;
     protected supportManyToOneJoin(): boolean;
     setInitialData(data: {
         [T in keyof ED]?: {

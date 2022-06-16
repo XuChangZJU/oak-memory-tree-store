@@ -47,6 +47,10 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         commit: number;
     };
 
+    protected supportMultipleCreate(): boolean {
+        return false;
+    }
+    
     protected supportManyToOneJoin(): boolean {
         return false;
     }
