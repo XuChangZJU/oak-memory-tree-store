@@ -3,6 +3,7 @@ import { Schema as User } from './User';
 import { Schema as Application } from './Application';
 import { AbleAction, makeAbleActionDef } from 'oak-domain/lib/actions/action';
 import { EntityShape } from 'oak-domain/lib/types/Entity';
+import { LocaleDef } from 'oak-domain/lib/types/Locale';
 // https://developers.weixin.qq.com/miniprogram/dev/api/base/system/wx.getSystemInfoSync.html
 export type WechatMpEnv = {
     type: 'wechatMp',
@@ -41,3 +42,21 @@ export interface Schema extends EntityShape {
 type Action = AbleAction;
 
 const AbleActionDef = makeAbleActionDef('enabled');
+
+
+const locale: LocaleDef<Schema, Action, '', {}> = {
+    zh_CN: {
+        attr: {
+            application: '应用',
+            entity: '关联对象',
+            entityId: '关联对象id',
+            user: '用户',
+            player: '扮演者',
+            env: '环境',
+        },
+        action: {
+            enable: '激活',
+            disable: '禁用',
+        }
+    },
+ };

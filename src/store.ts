@@ -50,7 +50,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
     protected supportMultipleCreate(): boolean {
         return false;
     }
-    
+
     protected supportManyToOneJoin(): boolean {
         return false;
     }
@@ -1316,7 +1316,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                         await this.doOperation(e, {
                             action: 'create',
                             data: d,
-                        }, context, {
+                        } as any, context, {
                             notCollect: true,
                         });
                         break;
