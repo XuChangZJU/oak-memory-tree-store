@@ -975,24 +975,8 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
     }
 
     async operate<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Cxt, params?: OperateParams): Promise<OperationResult<ED>> {
-        let autoCommit = false;
-        if (!context.getCurrentTxnId()) {
-            autoCommit = true;
-            await context.begin();
-        }
-        let result;
-        try {
-            result = await this.doOperation(entity, operation, context, params);
-        } catch (err) {
-            if (autoCommit) {
-                await context.rollback();
-            }
-            throw err;
-        }
-        if (autoCommit) {
-            await context.commit();
-        }
-        return result;
+        assert(context.getCurrentTxnId());
+        return await this.doOperation(entity, operation, context, params);
     }
 
     protected async formProjection<T extends keyof ED>(
@@ -1169,23 +1153,8 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         selection: S,
         context: Cxt,
         params?: Object) : Promise<SelectionResult<ED[T]['Schema'], S['data']>> {
-        let autoCommit = false;
-        let result: SelectRowShape<ED[T]['Schema'], S['data']>[];
-        if (!context.getCurrentTxnId()) {
-            autoCommit = true;
-            await context.begin();
-        }
-        try {
-            result = await this.cascadeSelect(entity, selection, context, params);
-        } catch (err) {
-            if (autoCommit) {
-                await context.rollback();
-            }
-            throw err;
-        }
-        if (autoCommit) {
-            await context.commit();
-        }
+        assert(context.getCurrentTxnId());
+        const result = await this.cascadeSelect(entity, selection, context, params);
         return {
             result,
             // stats,
@@ -1236,7 +1205,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
     }
 
     async commit(uuid: string) {
-        assert(this.activeTxnDict.hasOwnProperty(uuid));
+        assert(this.activeTxnDict.hasOwnProperty(uuid), uuid);
         let node = this.activeTxnDict[uuid].nodeHeader;
         while (node) {
             const node2 = node.$nextNode;
@@ -1303,75 +1272,60 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
 
     // 将输入的OpRecord同步到数据中
     async sync(opRecords: Array<OpRecord<ED>>, context: Cxt) {
-        let autoCommit = false;
-        if (!context.getCurrentTxnId()) {
-            await context.begin();
-            autoCommit = true;
-        }
-        try {
-            for (const record of opRecords) {
-                switch (record.a) {
-                    case 'c': {
-                        const { e, d } = record;
-                        await this.doOperation(e, {
-                            action: 'create',
-                            data: d,
-                        } as any, context, {
-                            notCollect: true,
-                        });
-                        break;
-                    }
-                    case 'u': {
-                        const { e, d, f } = record as UpdateOpResult<ED, keyof ED>;
-                        await this.doOperation(e, {
-                            action: 'update',
-                            data: d,
-                            filter: f,
-                        }, context, {
-                            notCollect: true,
-                        });
-                        break;
-                    }
-                    case 'r': {
-                        const { e, f } = record as RemoveOpResult<ED, keyof ED>;
-                        await this.doOperation(e, {
-                            action: 'remove',
-                            data: {},
-                            filter: f,
-                        }, context, {
-                            notCollect: true,
-                        });
-                        break;
-                    }
-                    case 's': {
-                        const { d } = record as SelectOpResult<ED>;
-                        for (const entity in d) {
-                            for (const id in d[entity]) {
-                                await this.doOperation(entity, {
-                                    action: 'create',
-                                    data: d[entity]![id],
-                                }, context, {
-                                    notCollect: true,
-                                });
-                            }
+        assert(context.getCurrentTxnId());
+        
+        for (const record of opRecords) {
+            switch (record.a) {
+                case 'c': {
+                    const { e, d } = record;
+                    await this.doOperation(e, {
+                        action: 'create',
+                        data: d,
+                    } as any, context, {
+                        notCollect: true,
+                    });
+                    break;
+                }
+                case 'u': {
+                    const { e, d, f } = record as UpdateOpResult<ED, keyof ED>;
+                    await this.doOperation(e, {
+                        action: 'update',
+                        data: d,
+                        filter: f,
+                    }, context, {
+                        notCollect: true,
+                    });
+                    break;
+                }
+                case 'r': {
+                    const { e, f } = record as RemoveOpResult<ED, keyof ED>;
+                    await this.doOperation(e, {
+                        action: 'remove',
+                        data: {},
+                        filter: f,
+                    }, context, {
+                        notCollect: true,
+                    });
+                    break;
+                }
+                case 's': {
+                    const { d } = record as SelectOpResult<ED>;
+                    for (const entity in d) {
+                        for (const id in d[entity]) {
+                            await this.doOperation(entity, {
+                                action: 'create',
+                                data: d[entity]![id],
+                            }, context, {
+                                notCollect: true,
+                            });
                         }
-                        break;
                     }
-                    default: {
-                        assert(false);
-                    }
+                    break;
+                }
+                default: {
+                    assert(false);
                 }
             }
-        }
-        catch (err) {
-            if (autoCommit) {
-                await context.rollback();
-            }
-            throw err;
-        }
-
-        if (autoCommit) {
-            await context.commit();
         }
     }
 }
