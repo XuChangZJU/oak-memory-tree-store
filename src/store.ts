@@ -1161,7 +1161,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         };
     }
 
-    async count<T extends keyof ED>(entity: T, selection: Omit<ED[T]['Selection'], "action" | "data" | "sorter">, context: Cxt, params?: Object): Promise<number> {
+    async count<T extends keyof ED>(entity: T, selection: Pick<ED[T]['Selection'], 'filter'>, context: Cxt, params?: Object): Promise<number> {
         const { result } = await this.select(entity, assign({}, selection, {
             data: {
                 id: 1,
