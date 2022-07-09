@@ -1076,8 +1076,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         params?: OperateParams,
         nodeDict?: NodeDict) {
         const { data, sorter, indexFrom, count } = selection;
-        // 要把sorter中的expr运算提到这里做掉，否则异步运算无法排序
-        
+
         const findAvailableExprName = (current: string[]) => {
             let counter = 1;
             while (counter < 20) {
@@ -1088,9 +1087,10 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
             }
             assert(false, '找不到可用的expr命名');
         }
-        const copyExprNode = <T2 extends keyof ED>(entity2: T2, proj: ED[T2]['Selection']['data'], sort: any) => {
+        const sortToProjection = <T2 extends keyof ED>(entity2: T2, proj: ED[T2]['Selection']['data'], sort: any) => {
             Object.keys(sort).forEach(
                 (attr) => {
+                    // 要把sorter中的expr运算提到这里做掉，否则异步运算无法排序        
                     if (attr.startsWith('$expr') && typeof sort[attr] === 'object') {
                         const attrName = findAvailableExprName(Object.keys(proj));
                         Object.assign(proj, {
@@ -1108,7 +1108,12 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                             });
                         }
                         const entity3 = typeof rel === 'string' ? rel : attr;
-                        copyExprNode(entity3, proj[attr], sort[attr]);
+                        sortToProjection(entity3, proj[attr], sort[attr]);
+                    }
+                    else if (rel === 1) {
+                        assign(proj, {
+                            [attr]: 1,
+                        })
                     }
                 }
             )
@@ -1116,7 +1121,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         if (sorter) {
             sorter.forEach(
                 (ele) => {
-                    copyExprNode(entity, data, ele.$attr)
+                    sortToProjection(entity, data, ele.$attr)
                 }
             );
         }
@@ -1152,7 +1157,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         entity: T,
         selection: S,
         context: Cxt,
-        params?: Object) : Promise<SelectionResult<ED[T]['Schema'], S['data']>> {
+        params?: OperateParams) : Promise<SelectionResult<ED[T]['Schema'], S['data']>> {
         assert(context.getCurrentTxnId());
         const result = await this.cascadeSelect(entity, selection, context, params);
         return {
