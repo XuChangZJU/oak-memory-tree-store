@@ -56,43 +56,35 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
     }
 
     setInitialData(data: {
-        [T in keyof ED]?: {
-            [ID: string]: ED[T]['OpSchema'];
-        };
+        [T in keyof ED]?: ED[T]['OpSchema'][];
     }) {
         for (const entity in data) {
             if (!this.store[entity]) {
                 this.store[entity] = {};
             }
-            for (const rowId in data[entity]) {
-                set(this.store, `${entity}.${rowId}.$current`, data[entity]![rowId]);
+            for (const row of data[entity]!) {
+                set(this.store, `${entity}.${row.id}.$current`, row);
             }
         }
     }
 
     getCurrentData(): {
-        [T in keyof ED]?: {
-            [ID: string]: ED[T]['OpSchema'];
-        };
+        [T in keyof ED]?:  ED[T]['OpSchema'][];
     } {
         const result: {
-            [T in keyof ED]?: {
-                [ID: string]: ED[T]['OpSchema'];
-            };
+            [T in keyof ED]?:  ED[T]['OpSchema'][];
         } = {};
         for (const entity in this.store) {
-            result[entity] = {};
+            result[entity] = [];
             for (const rowId in this.store[entity]) {
-                set(result, `${entity}.${rowId}`, this.store[entity]![rowId]!['$current']);
+                result[entity]?.push(this.store[entity]![rowId]!['$current']!);
             }
         }
         return result;
     }
 
     constructor(storageSchema: StorageSchema<ED>, initialData?: {
-        [T in keyof ED]?: {
-            [ID: string]: ED[T]['OpSchema'];
-        };
+        [T in keyof ED]?: ED[T]['OpSchema'][];
     }, stat?: {
         create: number;
         update: number;
