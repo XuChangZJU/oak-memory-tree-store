@@ -1,5 +1,5 @@
-import { assign, cloneDeep, get, keys, last, set, unset } from 'lodash';
-import assert from 'assert';
+import { cloneDeep, get, set, unset } from 'oak-domain/lib/utils/lodash';
+import { assert } from 'oak-domain/lib/utils/assert';
 import { DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation, DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateParams, OpRecord, DeduceCreateOperationData, DeduceUpdateOperationData, UpdateOpResult, RemoveOpResult, SelectOpResult, EntityDict, SelectRowShape, SelectionResult, DeduceSorterItem } from "oak-domain/lib/types/Entity";
 import { ExpressionKey, EXPRESSION_PREFIX, NodeId, RefAttr } from 'oak-domain/lib/types/Demand';
 import { CascadeStore } from 'oak-domain/lib/store/CascadeStore';
@@ -112,7 +112,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                 return null;
             }
             else {
-                return assign({}, data, node.$next);
+                return Object.assign({}, data, node.$next);
             }
         }
         return data;
@@ -441,7 +441,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                                 if (err instanceof OakError && err.$$code === RowStore.$$CODES.expressionUnresolved[0]) {
                                     fns.push(
                                         async (row, nodeDict) => {
-                                            assign(params, {
+                                            Object.assign(params, {
                                                 nodeDict,
                                             });
                                             const legalSets = (await this.selectAbjointRow(inData.entity, inData, context, params)).map(
@@ -490,7 +490,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                             if (err instanceof OakError && err.$$code === RowStore.$$CODES.expressionUnresolved[0]) {
                                 fns.push(
                                     async (row, nodeDict) => {
-                                        assign(params, {
+                                        Object.assign(params, {
                                             nodeDict,
                                         });
                                         const legalSets = (await this.selectAbjointRow(inData.entity, inData, context, params)).map(
@@ -627,7 +627,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         return async (node, nodeDict, exprResolveFns) => {
             if (nodeId) {
                 assert(!nodeDict.hasOwnProperty(nodeId), new OakError(RowStore.$$LEVEL, RowStore.$$CODES.nodeIdRepeated, `Filter中的nodeId「${nodeId}」出现了多次`));
-                assign(nodeDict, {
+                Object.assign(nodeDict, {
                     [nodeId]: this.constructRow(node, context),
                 });
             }
@@ -752,7 +752,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
     private addToResultSelections<T extends keyof ED>(entity: T, rows: Array<ED[T]['OpSchema']>, context: Cxt) {
         const { opRecords } = context;
 
-        let lastOperation = last(opRecords);
+        let lastOperation = opRecords[opRecords.length - 1];
         if (lastOperation && lastOperation.a === 's') {
             const entityBranch = lastOperation.d[entity];
             if (entityBranch) {
@@ -760,7 +760,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                     (row) => {
                         const { id } = row;
                         if (!entityBranch![id!]) {
-                            assign(entityBranch!, {
+                            Object.assign(entityBranch!, {
                                 [id!]: cloneDeep(row),
                             });
                         }
@@ -781,12 +781,12 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         rows.forEach(
             (row) => {
                 const { id } = row;
-                assign(entityBranch!, {
+                Object.assign(entityBranch!, {
                     [id!]: cloneDeep(row),
                 });
             }
         );
-        assign(lastOperation.d, {
+        Object.assign(lastOperation.d, {
             [entity]: entityBranch,
         });
     }
@@ -807,7 +807,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         for (const n of entityNodes) {
             const nodeDict2: NodeDict = {};
             if (nodeDict) {
-                assign(nodeDict2, nodeDict);
+                Object.assign(nodeDict2, nodeDict);
             }
             const exprResolveFns: Array<ExprResolveFn> = [];
             if (!filterFn || await (await filterFn)(n, nodeDict2, exprResolveFns)) {
@@ -856,7 +856,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                 /* if (row) {
                     throw new OakError(RowStore.$$LEVEL, RowStore.$$CODES.primaryKeyConfilict);
                 } */
-                const data2 = assign(data as DeduceCreateOperationData<ED[T]["Schema"]>, {
+                const data2 = Object.assign(data as DeduceCreateOperationData<ED[T]["Schema"]>, {
                     $$createAt$$: data.$$createAt$$ || now,
                     $$updateAt$$: data.$$updateAt$$ || now,
                 });
@@ -881,7 +881,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                 return 1;
             }
             default: {
-                const selection = assign({}, operation, {
+                const selection = Object.assign({}, operation, {
                     data: {
                         id: 1,
                     },
@@ -919,10 +919,10 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                         }
                         else {
                             const row = node && this.constructRow(node, context) || {};
-                            const data2 = assign(data as DeduceUpdateOperationData<ED[T]['Schema']>, {
+                            const data2 = Object.assign(data as DeduceUpdateOperationData<ED[T]['Schema']>, {
                                 $$updateAt$$: data.$$updateAt$$ || now,
                             });
-                            const data3 = assign(row, data2);
+                            const data3 = Object.assign(row, data2);
                             node.$next = data3;
                             if (!alreadyDirtyNode) {
                                 // 如果已经更新过的结点就不能再加了，会形成循环
@@ -952,7 +952,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
             const result = await this.formResult(entity, rows, operation as any, context, params);
            
             const operationResult: OperationResult<ED> = {};
-            assign(operationResult, {
+            Object.assign(operationResult, {
                 [entity]: {
                     select: result.length,
                 }
@@ -989,12 +989,12 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                 const ExprNodeTranslator = this.translateExpression(entity, data2[attr], context, {});
                 const exprResult = await ExprNodeTranslator(row, nodeDict);
                 if (typeof exprResult === 'function') {
-                    assign(laterExprDict, {
+                    Object.assign(laterExprDict, {
                         [attr]: exprResult,
                     });
                 }
                 else {
-                    assign(result, {
+                    Object.assign(result, {
                         [attr]: exprResult,
                     });
                 }
@@ -1002,7 +1002,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
             else if (attr === '#id') {
                 const nodeId = data[attr] as NodeId;
                 assert(!nodeDict.hasOwnProperty(nodeId), new OakError(RowStore.$$LEVEL, RowStore.$$CODES.nodeIdRepeated, `Filter中的nodeId「${nodeId}」出现了多次`));
-                assign(nodeDict, {
+                Object.assign(nodeDict, {
                     [nodeId]: row,
                 });
             }
@@ -1012,7 +1012,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
             if (!attr.startsWith(EXPRESSION_PREFIX) && attr !== '#id') {
                 const relation = judgeRelation(this.storageSchema, entity, attr);
                 if (relation === 1) {
-                    assign(result, {
+                    Object.assign(result, {
                         [attr]: row2[attr],
                     });
                 }
@@ -1021,7 +1021,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                         const result2 = {};
                         const { entity, entityId } = row2;
                         await this.formProjection(attr, row2[attr], data2[attr], result2, nodeDict, context);
-                        assign(result, {
+                        Object.assign(result, {
                             [attr]: result2,
                             entity,
                             entityId,
@@ -1032,7 +1032,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                     if (row2[attr]) {
                         const result2 = {};
                         await this.formProjection(relation, row2[attr], data2[attr], result2, nodeDict, context);
-                        assign(result, {
+                        Object.assign(result, {
                             [attr]: result2,
                         });
                     }
@@ -1042,7 +1042,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                     if (row2[attr] instanceof Array) {
                         const result2 = await this.formResult(relation[0], row2[attr], data2[attr], context, nodeDict);
 
-                        assign(result, {
+                        Object.assign(result, {
                             [attr]: result2,
                         });
                     }
@@ -1054,7 +1054,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
             const exprResult = laterExprDict[attr as ExpressionKey]!(nodeDict);
             // projection是不应出现计算不出来的情况
             assert(typeof exprResult !== 'function', new OakError(RowStore.$$LEVEL, RowStore.$$CODES.expressionUnresolved, 'data中的expr无法计算，请检查命名与引用的一致性'));
-            assign(result, {
+            Object.assign(result, {
                 [attr]: exprResult,
             });
         }
@@ -1103,7 +1103,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                         sortToProjection(entity3, proj[attr], sort[attr]);
                     }
                     else if (rel === 1) {
-                        assign(proj, {
+                        Object.assign(proj, {
                             [attr]: 1,
                         })
                     }
@@ -1124,7 +1124,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
             const result = {};
             const nodeDict2: NodeDict = {};
             if (nodeDict) {
-                assign(nodeDict2, nodeDict);
+                Object.assign(nodeDict2, nodeDict);
             }
             await this.formProjection(entity, row, data, result, nodeDict2, context);
             rows2.push(result as SelectRowShape<ED[T]['Schema'], S['data']>);
@@ -1159,7 +1159,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
     }
 
     async count<T extends keyof ED>(entity: T, selection: Pick<ED[T]['Selection'], 'filter'>, context: Cxt, params?: Object): Promise<number> {
-        const { result } = await this.select(entity, assign({}, selection, {
+        const { result } = await this.select(entity, Object.assign({}, selection, {
             data: {
                 id: 1,
             }
@@ -1191,7 +1191,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
     async begin() {
         const uuid = `${Math.random()}`;
         assert(!this.activeTxnDict.hasOwnProperty(uuid));
-        assign(this.activeTxnDict, {
+        Object.assign(this.activeTxnDict, {
             [uuid]: {
                 create: 0,
                 update: 0,
@@ -1209,7 +1209,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
             if (node.$txnId === uuid) {
                 if (node.$next) {
                     // create/update
-                    node.$current = assign(node.$current, node.$next);
+                    node.$current = Object.assign(node.$current || {}, node.$next) as EntityShape;
                     unset(node, '$txnId');
                     unset(node, '$next');
                     unset(node, '$path');
