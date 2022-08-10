@@ -1,6 +1,6 @@
 import { cloneDeep, get, set, unset } from 'oak-domain/lib/utils/lodash';
 import { assert } from 'oak-domain/lib/utils/assert';
-import { DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation, DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateOption, OpRecord, DeduceCreateOperationData, DeduceUpdateOperationData, UpdateOpResult, RemoveOpResult, SelectOpResult, EntityDict, SelectRowShape, SelectionResult, DeduceSorterItem, SelectOption } from "oak-domain/lib/types/Entity";
+import { DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation, DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateOption, OpRecord, DeduceCreateOperationData, DeduceUpdateOperationData, UpdateOpResult, RemoveOpResult, SelectOpResult, EntityDict, SelectRowShape, SelectionResult, SelectOption } from "oak-domain/lib/types/Entity";
 import { ExpressionKey, EXPRESSION_PREFIX, NodeId, RefAttr } from 'oak-domain/lib/types/Demand';
 import { CascadeStore } from 'oak-domain/lib/store/CascadeStore';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
@@ -22,8 +22,13 @@ interface ExprNodeTranslator {
     (row: any, nodeDict: NodeDict): ExpressionConstant | ExprLaterCheckFn;
 };
 
-function obscurePass(row: any, attr: string, option: SelectOption): boolean {
-    return !!(option.obscure && row[attr] === undefined);
+function obscurePass(row: any, attr: string, option?: SelectOption): boolean {
+    return !!(option?.obscure && row[attr] === undefined);
+}
+
+
+interface TreeStoreSelectOption extends SelectOption {
+    nodeDict?: NodeDict;
 }
 
 export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> extends CascadeStore<ED, Cxt> {
@@ -118,12 +123,12 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         return data;
     }
 
-    private translateLogicFilter<T extends keyof ED>(
+    private translateLogicFilter<T extends keyof ED, OP extends TreeStoreSelectOption>(
         entity: T,
         filter: DeduceFilter<ED[T]['Schema']>,
         attr: string,
         context: Cxt,
-        option: SelectOption): (node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => Promise<boolean> {
+        option?: OP): (node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => Promise<boolean> {
         switch (attr) {
             case '$and': {
                 const filters = filter[attr];
@@ -182,11 +187,11 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
      * @param context 
      * @returns 
      */
-    private translateExpressionNode<T extends keyof ED>(
+    private translateExpressionNode<T extends keyof ED, OP extends TreeStoreSelectOption>(
         entity: T,
         expression: Expression<keyof ED[T]['Schema']> | RefAttr<keyof ED[T]['Schema']> | ExpressionConstant,
         context: Cxt,
-        option?: SelectOption): ExprNodeTranslator | ExpressionConstant {
+        option?: OP): ExprNodeTranslator | ExpressionConstant {
 
         if (isExpression(expression)) {
             const op = Object.keys(expression)[0];
@@ -293,10 +298,10 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         }
     }
 
-    private translateExpression<T extends keyof ED>(
+    private translateExpression<T extends keyof ED, OP extends TreeStoreSelectOption>(
         entity: T,
         expression: Expression<keyof ED[T]['Schema']>,
-        context: Cxt, option?: SelectOption): (row: Partial<ED[T]['OpSchema']>, nodeDict: NodeDict) => Promise<ExpressionConstant | ExprLaterCheckFn> {
+        context: Cxt, option?: OP): (row: Partial<ED[T]['OpSchema']>, nodeDict: NodeDict) => Promise<ExpressionConstant | ExprLaterCheckFn> {
         const expr = this.translateExpressionNode(entity, expression, context, option);
 
         return async (row, nodeDict) => {
@@ -308,11 +313,11 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         };
     }
 
-    private translateFulltext<T extends keyof ED>(
+    private translateFulltext<T extends keyof ED, OP extends TreeStoreSelectOption>(
         entity: T,
         filter: Q_FullTextValue,
         context: Cxt,
-        option: SelectOption): (node: RowNode) => Promise<boolean> {
+        option?: OP): (node: RowNode) => Promise<boolean> {
         // 全文索引查找
         const { [entity]: { indexes } } = this.storageSchema;
         const fulltextIndex = indexes!.find(
@@ -334,9 +339,9 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         };
     }
 
-    private async translateAttribute<T extends keyof ED>(filter: Q_NumberValue | Q_StringValue | Q_BooleanValue | ED[T]['Selection'] & {
+    private async translateAttribute<T extends keyof ED, OP extends TreeStoreSelectOption>(filter: Q_NumberValue | Q_StringValue | Q_BooleanValue | ED[T]['Selection'] & {
         entity: T;
-    }, attr: string, context: Cxt, option: SelectOption): Promise<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => Promise<boolean>> {
+    }, attr: string, context: Cxt, option?: OP): Promise<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => Promise<boolean>> {
         // 如果是模糊查询且该属性为undefined，说明没取到，返回true
         function obscurePassLocal(row: any) {
             return obscurePass(row, attr, option);
@@ -419,7 +424,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                     }
                     else {
                         // 如果是obscure，则返回的集合中有没有都不能否决“可能有”，所以可以直接返回true
-                        if (option.obscure) {
+                        if (option?.obscure) {
                             fns.push(async () => true);
                         }
                         else {
@@ -441,17 +446,14 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                                 if (err instanceof OakError && err.$$code === RowStore.$$CODES.expressionUnresolved[0]) {
                                     fns.push(
                                         async (row, nodeDict) => {
-                                            Object.assign(option, {
-                                                nodeDict,
-                                            });
-                                            const legalSets = (await this.selectAbjointRow(inData.entity, inData, context, option)).map(
+                                            const option2 = Object.assign({}, option, { nodeDict });
+                                            const legalSets = (await this.selectAbjointRow(inData.entity, inData, context, option2)).map(
                                                 (ele) => {
                                                     const { data } = inData as DeduceSelection<ED[keyof ED]['Schema']>;
                                                     const key = Object.keys(data)[0];
                                                     return (ele as any)[key];
                                                 }
                                             );
-                                            unset(option, 'nodeDict');
                                             return legalSets.includes(row[attr]);
                                         }
                                     );
@@ -490,17 +492,14 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                             if (err instanceof OakError && err.$$code === RowStore.$$CODES.expressionUnresolved[0]) {
                                 fns.push(
                                     async (row, nodeDict) => {
-                                        Object.assign(option, {
-                                            nodeDict,
-                                        });
-                                        const legalSets = (await this.selectAbjointRow(inData.entity, inData, context, option)).map(
+                                        const option2 = Object.assign({}, option, { nodeDict });
+                                        const legalSets = (await this.selectAbjointRow(inData.entity, inData, context, option2)).map(
                                             (ele) => {
                                                 const { data } = inData as DeduceSelection<ED[keyof ED]['Schema']>;
                                                 const key = Object.keys(data)[0];
                                                 return (ele as any)[key];
                                             }
                                         );
-                                        unset(option, 'nodeDict');
                                         return !legalSets.includes(row[attr]) || obscurePassLocal(row);
                                     }
                                 );
@@ -530,11 +529,11 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         }
     }
 
-    private async translateFilter<T extends keyof ED>(
+    private async translateFilter<T extends keyof ED, OP extends TreeStoreSelectOption>(
         entity: T,
         filter: DeduceFilter<ED[T]['Schema']>,
         context: Cxt,
-        option: SelectOption): Promise<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => Promise<boolean>> {
+        option?: OP): Promise<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => Promise<boolean>> {
         const fns: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => Promise<boolean>> = [];
 
         let nodeId: NodeId;
@@ -588,7 +587,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                             }
                             const node2 = get(this.store, `${attr}.${(row as any).entityId}`);
                             if (!node2) {
-                                if (option.obscure) {
+                                if (option?.obscure) {
                                     return true;
                                 }
                                 return false;
@@ -610,7 +609,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                             if ((row as any)[`${attr}Id`]) {
                                 const node2 = get(this.store, `${relation}.${(row as any)[`${attr}Id`]}`);
                                 if (!node2) {
-                                    if (option.obscure) {
+                                    if (option?.obscure) {
                                         return true;
                                     }
                                     return false;
@@ -790,15 +789,13 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         });
     }
 
-    protected async selectAbjointRow<T extends keyof ED, S extends ED[T]['Selection']>(
+    protected async selectAbjointRow<T extends keyof ED, S extends ED[T]['Selection'], OP extends TreeStoreSelectOption>(
         entity: T,
         selection: S,
         context: Cxt,
-        option: SelectOption = {}): Promise<SelectRowShape<ED[T]['Schema'], S['data']>[]> {
+        option?: OP): Promise<SelectRowShape<ED[T]['Schema'], S['data']>[]> {
         const { filter } = selection;
-        const { nodeDict } = option as {
-            nodeDict: NodeDict;
-        };
+        const nodeDict = option?.nodeDict;
 
         const filterFn = filter && this.translateFilter(entity, filter!, context, option);
         const entityNodes = this.store[entity] ? Object.values(this.store[entity]!) : [];
@@ -839,11 +836,11 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         return rows2;
     }
 
-    protected async updateAbjointRow<T extends keyof ED>(
+    protected async updateAbjointRow<T extends keyof ED, OP extends OperateOption>(
         entity: T,
         operation: DeduceCreateSingleOperation<ED[T]['Schema']> | DeduceUpdateOperation<ED[T]['Schema']> | DeduceRemoveOperation<ED[T]['Schema']>,
         context: Cxt,
-        option?: OperateOption): Promise<number> {
+        option?: OP): Promise<number> {
         const { data, action } = operation;
 
         const now = Date.now();
@@ -943,7 +940,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         }
     }
 
-    private async doOperation<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Cxt, option?: OperateOption): Promise<OperationResult<ED>> {
+    private async doOperation<T extends keyof ED, OP extends OperateOption>(entity: T, operation: ED[T]['Operation'], context: Cxt, option?: OP): Promise<OperationResult<ED>> {
         const { action } = operation;
         if (action === 'select') {
             throw new Error('现在不支持使用select operation');
@@ -953,7 +950,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         }
     }
 
-    async operate<T extends keyof ED>(entity: T, operation: ED[T]['Operation'], context: Cxt, option?: OperateOption): Promise<OperationResult<ED>> {
+    async operate<T extends keyof ED, OP extends OperateOption>(entity: T, operation: ED[T]['Operation'], context: Cxt, option?: OP): Promise<OperationResult<ED>> {
         assert(context.getCurrentTxnId());
         return await this.doOperation(entity, operation, context, option);
     }
@@ -1131,11 +1128,11 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         }
     }
 
-    async select<T extends keyof ED, S extends ED[T]['Selection']>(
+    async select<T extends keyof ED, S extends ED[T]['Selection'], OP extends TreeStoreSelectOption>(
         entity: T,
         selection: S,
         context: Cxt,
-        option?: SelectOption) : Promise<SelectionResult<ED[T]['Schema'], S['data']>> {
+        option?: OP) : Promise<SelectionResult<ED[T]['Schema'], S['data']>> {
         assert(context.getCurrentTxnId());
         const result = await this.cascadeSelect(entity, selection, context, option);
         return {
@@ -1144,7 +1141,10 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         };
     }
 
-    async count<T extends keyof ED>(entity: T, selection: Pick<ED[T]['Selection'], 'filter' | 'count'>, context: Cxt, option?: SelectOption): Promise<number> {
+    async count<T extends keyof ED, OP extends TreeStoreSelectOption>(
+        entity: T, 
+        selection: Pick<ED[T]['Selection'], 'filter' | 'count'>, 
+        context: Cxt, option?: OP): Promise<number> {
         const { result } = await this.select(entity, Object.assign({}, selection, {
             data: {
                 id: 1,
