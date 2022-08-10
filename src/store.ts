@@ -830,7 +830,9 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
             (node) => this.constructRow(node, context) as EntityShape
         );
 
-        this.addToResultSelections(entity, rows, context);
+        if (!option?.dontCollect) {
+            this.addToResultSelections(entity, rows, context);
+        }
 
         const rows2 = await this.formResult(entity, rows, selection, context);
         return rows2;
@@ -867,7 +869,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                 }
                 set(this.store, `${entity as string}.${id!}`, node2);
                 this.addToTxnNode(node2, context, 'create');
-                if (!option || !option.notCollect) {
+                if (!option || !option.dontCollect) {
                     context.opRecords.push({
                         a: 'c',
                         e: entity,
@@ -905,7 +907,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                                 // 如果已经更新过的结点就不能再加了，会形成循环
                                 this.addToTxnNode(node, context, 'remove');
                             }
-                            if (!option || !option.notCollect) {
+                            if (!option || !option.dontCollect) {
                                 context.opRecords.push({
                                     a: 'r',
                                     e: entity,
@@ -924,7 +926,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                                 // 如果已经更新过的结点就不能再加了，会形成循环
                                 this.addToTxnNode(node, context, 'remove');
                             }
-                            if (!option || !option.notCollect) {
+                            if (!option || !option.dontCollect) {
                                 context.opRecords.push({
                                     a: 'u',
                                     e: entity,
@@ -1265,7 +1267,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                         action: 'create',
                         data: d,
                     } as any, context, {
-                        notCollect: true,
+                        dontCollect: true,
                     });
                     break;
                 }
@@ -1276,7 +1278,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                         data: d,
                         filter: f,
                     }, context, {
-                        notCollect: true,
+                        dontCollect: true,
                     });
                     break;
                 }
@@ -1287,7 +1289,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                         data: {},
                         filter: f,
                     }, context, {
-                        notCollect: true,
+                        dontCollect: true,
                     });
                     break;
                 }
@@ -1299,7 +1301,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                                 action: 'create',
                                 data: d[entity]![id],
                             }, context, {
-                                notCollect: true,
+                                dontCollect: true,
                             });
                         }
                     }
