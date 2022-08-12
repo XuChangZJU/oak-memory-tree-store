@@ -62,14 +62,21 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
 
     setInitialData(data: {
         [T in keyof ED]?: ED[T]['OpSchema'][];
+    }, stat?: {
+        create: number;
+        update: number;
+        remove: number;
+        commit: number;
     }) {
+        this.store = {};
         for (const entity in data) {
-            if (!this.store[entity]) {
-                this.store[entity] = {};
-            }
+            this.store[entity] = {};
             for (const row of data[entity]!) {
                 set(this.store, `${entity}.${row.id}.$current`, row);
             }
+        }
+        if (stat) {
+            this.stat = stat;
         }
     }
 
@@ -88,21 +95,11 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         return result;
     }
 
-    constructor(storageSchema: StorageSchema<ED>, initialData?: {
-        [T in keyof ED]?: ED[T]['OpSchema'][];
-    }, stat?: {
-        create: number;
-        update: number;
-        remove: number;
-        commit: number;
-    }) {
+    constructor(storageSchema: StorageSchema<ED>) {
         super(storageSchema);
         this.store = {};
-        if (initialData) {
-            this.setInitialData(initialData);
-        }
         this.activeTxnDict = {};
-        this.stat = stat || {
+        this.stat = {
             create: 0,
             update: 0,
             remove: 0,

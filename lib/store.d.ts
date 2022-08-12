@@ -12,20 +12,18 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
     private stat;
     protected supportMultipleCreate(): boolean;
     protected supportManyToOneJoin(): boolean;
-    setInitialData(data: {
-        [T in keyof ED]?: ED[T]['OpSchema'][];
-    }): void;
-    getCurrentData(): {
-        [T in keyof ED]?: ED[T]['OpSchema'][];
-    };
-    constructor(storageSchema: StorageSchema<ED>, initialData?: {
+    resetInitialData(data: {
         [T in keyof ED]?: ED[T]['OpSchema'][];
     }, stat?: {
         create: number;
         update: number;
         remove: number;
         commit: number;
-    });
+    }): void;
+    getCurrentData(): {
+        [T in keyof ED]?: ED[T]['OpSchema'][];
+    };
+    constructor(storageSchema: StorageSchema<ED>);
     private constructRow;
     private translateLogicFilter;
     /**
