@@ -60,7 +60,7 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
         return false;
     }
 
-    setInitialData(data: {
+    resetInitialData(data: {
         [T in keyof ED]?: ED[T]['OpSchema'][];
     }, stat?: {
         create: number;
