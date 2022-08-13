@@ -8,7 +8,7 @@
     "dependencies": {
         "luxon": "^2.3.0",
         "uuid": "^8.3.2",
-        "oak-domain": "^1.0.0"
+        "oak-domain": "file:../oak-domain"
     },
     "scripts": {
         "make:domain": "ts-node test/build-app-domain",
