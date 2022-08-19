@@ -876,12 +876,14 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
                 return 1;
             }
             default: {
-                const selection = Object.assign({}, operation, {
+                const selection: ED[T]['Selection'] = {
                     data: {
                         id: 1,
                     },
-                    action: 'select',
-                }) as ED[T]['Selection'];
+                    filter: operation.filter,
+                    indexFrom: operation.indexFrom,
+                    count: operation.count,
+                };
                 const rows = await this.selectAbjointRow(entity, selection, context);
 
                 const ids = rows.map(ele => ele.id);
