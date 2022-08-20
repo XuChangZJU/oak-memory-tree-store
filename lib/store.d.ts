@@ -1,4 +1,5 @@
 import { DeduceCreateSingleOperation, DeduceRemoveOperation, DeduceUpdateOperation, OperationResult, OperateOption, OpRecord, EntityDict, SelectRowShape, SelectionResult, SelectOption } from "oak-domain/lib/types/Entity";
+import { EntityDict as BaseEntityDict } from 'oak-domain/lib/base-app-domain';
 import { CascadeStore } from 'oak-domain/lib/store/CascadeStore';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
 import { Context } from "oak-domain/lib/types/Context";
@@ -6,7 +7,11 @@ import { NodeDict } from "./types/type";
 interface TreeStoreSelectOption extends SelectOption {
     nodeDict?: NodeDict;
 }
-export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> extends CascadeStore<ED, Cxt> {
+interface TreeStoreOperateOption extends OperateOption {
+    dontCreateOper?: true;
+    allowExists?: true;
+}
+export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt extends Context<ED>> extends CascadeStore<ED, Cxt> {
     private store;
     private activeTxnDict;
     private stat;
@@ -52,9 +57,9 @@ export default class TreeStore<ED extends EntityDict, Cxt extends Context<ED>> e
      */
     private addToResultSelections;
     protected selectAbjointRow<T extends keyof ED, S extends ED[T]['Selection'], OP extends TreeStoreSelectOption>(entity: T, selection: S, context: Cxt, option?: OP): Promise<SelectRowShape<ED[T]['Schema'], S['data']>[]>;
-    protected updateAbjointRow<T extends keyof ED, OP extends OperateOption>(entity: T, operation: DeduceCreateSingleOperation<ED[T]['Schema']> | DeduceUpdateOperation<ED[T]['Schema']> | DeduceRemoveOperation<ED[T]['Schema']>, context: Cxt, option?: OP): Promise<number>;
+    protected updateAbjointRow<T extends keyof ED, OP extends TreeStoreOperateOption>(entity: T, operation: DeduceCreateSingleOperation<ED[T]['Schema']> | DeduceUpdateOperation<ED[T]['Schema']> | DeduceRemoveOperation<ED[T]['Schema']>, context: Cxt, option?: OP): Promise<number>;
     private doOperation;
-    operate<T extends keyof ED, OP extends OperateOption>(entity: T, operation: ED[T]['Operation'], context: Cxt, option?: OP): Promise<OperationResult<ED>>;
+    operate<T extends keyof ED, OP extends TreeStoreOperateOption>(entity: T, operation: ED[T]['Operation'], context: Cxt, option?: OP): Promise<OperationResult<ED>>;
     protected formProjection<T extends keyof ED>(entity: T, row: Partial<ED[T]['OpSchema']>, data: ED[T]['Selection']['data'], result: object, nodeDict: NodeDict, context: Cxt): Promise<void>;
     private formResult;
     select<T extends keyof ED, S extends ED[T]['Selection'], OP extends TreeStoreSelectOption>(entity: T, selection: S, context: Cxt, option?: OP): Promise<SelectionResult<ED[T]['Schema'], S['data']>>;

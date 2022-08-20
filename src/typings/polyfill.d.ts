@@ -1,1 +1,4 @@
-// declare const getRandomValues: (length: number) => Promise<Uint8Array>;
+declare global {
+    const generateNewId: (options?: { timestamp?: boolean }) => Promise<string>;
+}
+export {}
