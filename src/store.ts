@@ -856,6 +856,12 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         const { data, action, id: operId } = operation;
 
         const now = Date.now();
+
+        if (action.endsWith('-l')) {
+            // 说明是延时动作，此时将之转换成为对Modi对象的插入动作
+            const aciton2 = action.slice(0, action.length -2);
+
+        }
         switch (action) {
             case 'create': {
                 const { id } = data as DeduceCreateOperationData<ED[T]["Schema"]>;
@@ -921,12 +927,13 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                 }
                 if (!option?.dontCreateOper && !['oper', 'operEntity', 'modiEntity'].includes(entity as string)) {
                     // 按照框架要求生成Oper和OperEntity这两个内置的对象
+                    assert(operId);
                     const operEntityData = {
                         id: await generateNewId(),
                         entity,
                         entityId: id,
                     };
-                    if (!this.store?.oper?.operId) {
+                    if (!this.store?.oper || !this.store?.oper[operId]) {
                         Object.assign(operEntityData, {
                             oper: {
                                 id: 'dummy',
@@ -935,6 +942,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                                     id: operId,
                                     action,
                                     data,
+                                    operatorId: await context.getCurrentUserId(),
                                 }
                             }
                         });
@@ -1018,6 +1026,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                         id: operId,
                         action,
                         data,
+                        operatorId: await context.getCurrentUserId(),
                         operEntity$oper: [],
                     };
 
