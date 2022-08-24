@@ -1,17 +1,13 @@
 import { cloneDeep, get, set, unset } from 'oak-domain/lib/utils/lodash';
 import { assert } from 'oak-domain/lib/utils/assert';
-import { isLaterAction } from 'oak-domain/lib/store/action';
 import {
     DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation,
     DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateOption, OpRecord,
-    DeduceCreateOperationData, DeduceUpdateOperationData, UpdateOpResult, RemoveOpResult, SelectOpResult,
-    EntityDict, SelectRowShape, SelectionResult, SelectOption, Operation as OakOperation
-} from "oak-domain/lib/types/Entity";
+    DeduceCreateOperationData, UpdateOpResult, RemoveOpResult, SelectOpResult,
+    EntityDict, SelectRowShape, SelectionResult, SelectOption} from "oak-domain/lib/types/Entity";
 import { ExpressionKey, EXPRESSION_PREFIX, NodeId, RefAttr } from 'oak-domain/lib/types/Demand';
 import { OakCongruentRowExists } from 'oak-domain/lib/types/Exception';
 import { EntityDict as BaseEntityDict } from 'oak-domain/lib/base-app-domain';
-import { CreateOperationData as CreateOper } from 'oak-domain/lib/base-app-domain/Oper/Schema';
-import { CreateOperationData as CreateOperEntity } from 'oak-domain/lib/base-app-domain/OperEntity/Schema';
 import { CascadeStore } from 'oak-domain/lib/store/CascadeStore';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
 import { OakError } from 'oak-domain/lib/OakError';
@@ -1196,32 +1192,76 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
             switch (record.a) {
                 case 'c': {
                     const { e, d } = record;
-                    await this.doOperation(e, {
-                        id: 'dummy',
-                        action: 'create',
-                        data: d,
-                    }, context, {
-                        dontCollect: true,
-                        dontCreateOper: true,
-                    });
+                    if (d instanceof Array) {
+                        for (const dd of d) {
+                            if (this.store[e] && this.store[e]![dd.id]) {
+                                await this.updateAbjointRow(e, {
+                                    id: 'dummy',
+                                    action: 'update',
+                                    data: dd,
+                                    filter: {
+                                        id: dd.id,
+                                    } as any,
+                                }, context, {
+                                    dontCollect: true,
+                                    dontCreateOper: true,                                    
+                                })
+                            }
+                            else {
+                                await this.updateAbjointRow(e, {
+                                    id: 'dummy',
+                                    action: 'create',
+                                    data: dd,
+                                }, context, {
+                                    dontCollect: true,
+                                    dontCreateOper: true,
+                                });
+                            }
+                        }
+                    }
+                    else {
+                        if (this.store[e] && this.store[e]![d.id]) {
+                            await this.updateAbjointRow(e, {
+                                id: 'dummy',
+                                action: 'update',
+                                data: d,
+                                filter: {
+                                    id: d.id,
+                                } as any,
+                            }, context, {
+                                dontCollect: true,
+                                dontCreateOper: true,                                    
+                            });
+                        }
+                        else {
+                            await this.updateAbjointRow(e, {
+                                id: 'dummy',
+                                action: 'create',
+                                data: d,
+                            }, context, {
+                                dontCollect: true,
+                                dontCreateOper: true,
+                            });
+                        }
+                    }
                     break;
                 }
                 case 'u': {
                     const { e, d, f } = record as UpdateOpResult<ED, keyof ED>;
-                    await this.doOperation(e, {
+                    await this.updateAbjointRow(e, {
                         id: 'dummy',
                         action: 'update',
                         data: d,
                         filter: f,
                     }, context, {
                         dontCollect: true,
-                        dontCreateOper: true,
+                        dontCreateOper: true,                                    
                     });
                     break;
                 }
                 case 'r': {
                     const { e, f } = record as RemoveOpResult<ED, keyof ED>;
-                    await this.doOperation(e, {
+                    await this.updateAbjointRow(e, {
                         id: 'dummy',
                         action: 'remove',
                         data: {},
@@ -1236,15 +1276,29 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                     const { d } = record as SelectOpResult<ED>;
                     for (const entity in d) {
                         for (const id in d[entity]) {
-                            await this.doOperation(entity, {
-                                id: 'dummy',
-                                action: 'create',
-                                data: d[entity]![id],
-                            }, context, {
-                                dontCollect: true,
-                                dontCreateOper: true,
-                                allowExists: true,
-                            });
+                            if (this.store[entity] && this.store[entity]![id]) {
+                                await this.updateAbjointRow(entity, {
+                                    id: 'dummy',
+                                    action: 'update',
+                                    data: d[entity]![id],
+                                    filter: {
+                                        id,
+                                    } as any,
+                                }, context, {
+                                    dontCollect: true,
+                                    dontCreateOper: true,                                    
+                                });
+                            }
+                            else {
+                                await this.updateAbjointRow(entity, {
+                                    id: 'dummy',
+                                    action: 'create',
+                                    data: d[entity]![id],
+                                }, context, {
+                                    dontCollect: true,
+                                    dontCreateOper: true,
+                                });
+                            }
                         }
                     }
                     break;
