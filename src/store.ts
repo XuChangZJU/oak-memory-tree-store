@@ -1,5 +1,6 @@
 import { cloneDeep, get, set, unset } from 'oak-domain/lib/utils/lodash';
 import { assert } from 'oak-domain/lib/utils/assert';
+import { isLaterAction } from 'oak-domain/lib/store/action';
 import {
     DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation,
     DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateOption, OpRecord,
@@ -40,8 +41,6 @@ interface TreeStoreSelectOption extends SelectOption {
 }
 
 interface TreeStoreOperateOption extends OperateOption {
-    dontCreateOper?: true,
-    allowExists?: true,
 };
 
 export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt extends Context<ED>> extends CascadeStore<ED, Cxt> {
@@ -751,54 +750,6 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         }
     }
 
-    /**
-     * 将一次查询的结果集加入result
-     * @param entity 
-     * @param rows 
-     * @param context 
-     */
-    private addToResultSelections<T extends keyof ED>(entity: T, rows: Array<ED[T]['OpSchema']>, context: Cxt) {
-        const { opRecords } = context;
-
-        let lastOperation = opRecords[opRecords.length - 1];
-        if (lastOperation && lastOperation.a === 's') {
-            const entityBranch = lastOperation.d[entity];
-            if (entityBranch) {
-                rows.forEach(
-                    (row) => {
-                        const { id } = row;
-                        if (!entityBranch![id!]) {
-                            Object.assign(entityBranch!, {
-                                [id!]: cloneDeep(row),
-                            });
-                        }
-                    }
-                );
-                return;
-            }
-        }
-        else {
-            lastOperation = {
-                a: 's',
-                d: {},
-            };
-            opRecords.push(lastOperation);
-        }
-
-        const entityBranch = {};
-        rows.forEach(
-            (row) => {
-                const { id } = row;
-                Object.assign(entityBranch!, {
-                    [id!]: cloneDeep(row),
-                });
-            }
-        );
-        Object.assign(lastOperation.d, {
-            [entity]: entityBranch,
-        });
-    }
-
     protected async selectAbjointRow<T extends keyof ED, S extends ED[T]['Selection'], OP extends TreeStoreSelectOption>(
         entity: T,
         selection: S,
@@ -840,10 +791,6 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
             (node) => this.constructRow(node, context) as EntityShape
         );
 
-        if (!option?.dontCollect) {
-            this.addToResultSelections(entity, rows, context);
-        }
-
         const rows2 = await this.formResult(entity, rows, selection, context);
         return rows2;
     }
@@ -852,16 +799,9 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         entity: T,
         operation: DeduceCreateSingleOperation<ED[T]['Schema']> | DeduceUpdateOperation<ED[T]['Schema']> | DeduceRemoveOperation<ED[T]['Schema']>,
         context: Cxt,
-        option?: OP): Promise<number> {
+        option: OP): Promise<number> {
         const { data, action, id: operId } = operation;
-
-        const now = Date.now();
-
-        if (action.endsWith('-l')) {
-            // 说明是延时动作，此时将之转换成为对Modi对象的插入动作
-            const aciton2 = action.slice(0, action.length -2);
-
-        }
+        
         switch (action) {
             case 'create': {
                 const { id } = data as DeduceCreateOperationData<ED[T]["Schema"]>;
@@ -870,47 +810,15 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                 /* if (row) {
                     throw new OakError(RowStore.$$LEVEL, RowStore.$$CODES.primaryKeyConfilict);
                 } */
+                
                 if (this.store[entity] && (this.store[entity]!)[id as string]) {
                     const node = this.store[entity] && (this.store[entity]!)[id as string];
-                    if (option?.allowExists) {
-                        // select同步前端缓存，此时变成update
-                        const data2 = Object.assign(data as DeduceUpdateOperationData<ED[T]['Schema']>, node.$next, {
-                            $$updateAt$$: data.$$updateAt$$ || now,
-                        });
-                        node.$next = data2;
-
-                        let alreadyDirtyNode = false;
-                        if (!node.$txnId) {
-                            node.$txnId = context.getCurrentTxnId()!;
-                        }
-                        else {
-                            assert(node.$txnId === context.getCurrentTxnId());
-                            alreadyDirtyNode = true;
-                        }
-                        if (!alreadyDirtyNode) {
-                            // 如果已经更新过的结点就不能再加了，会形成循环
-                            this.addToTxnNode(node, context, 'update');
-                        }
-                        if (!option || !option.dontCollect) {
-                            context.opRecords.push({
-                                a: 'u',
-                                e: entity,
-                                d: data2,
-                                f: (operation as DeduceUpdateOperation<ED[T]['Schema']>).filter,
-                            });
-                        }
-                        return 1;
-                    }
-                    throw new OakCongruentRowExists(this.constructRow(node, context)!);
+                    throw new OakCongruentRowExists(this.constructRow(node, context)!);                    
                 }
-                const data2 = Object.assign(data as DeduceCreateOperationData<ED[T]["Schema"]>, {
-                    $$createAt$$: data.$$createAt$$ || now,
-                    $$updateAt$$: data.$$updateAt$$ || now,
-                });
                 const node2: RowNode = {
                     $txnId: context.getCurrentTxnId()!,
                     $current: null,
-                    $next: data2,
+                    $next: data,
                     $path: `${entity as string}.${id!}`,
                 };
                 if (!this.store[entity]) {
@@ -918,46 +826,6 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                 }
                 set(this.store, `${entity as string}.${id!}`, node2);
                 this.addToTxnNode(node2, context, 'create');
-                if (!option || !option.dontCollect) {
-                    context.opRecords.push({
-                        a: 'c',
-                        e: entity,
-                        d: data2,
-                    });
-                }
-                if (!option?.dontCreateOper && !['oper', 'operEntity', 'modiEntity'].includes(entity as string)) {
-                    // 按照框架要求生成Oper和OperEntity这两个内置的对象
-                    assert(operId);
-                    const operEntityData = {
-                        id: await generateNewId(),
-                        entity,
-                        entityId: id,
-                    };
-                    if (!this.store?.oper || !this.store?.oper[operId]) {
-                        Object.assign(operEntityData, {
-                            oper: {
-                                id: 'dummy',
-                                action: 'create',
-                                data: {
-                                    id: operId,
-                                    action,
-                                    data,
-                                    operatorId: await context.getCurrentUserId(),
-                                }
-                            }
-                        });
-                    }
-                    else {
-                        Object.assign(operEntityData, {
-                            operId,
-                        });
-                    }
-                    await this.cascadeUpdate('operEntity', {
-                        id: 'dummy',
-                        action: 'create',
-                        data: operEntityData,
-                    }, context);
-                }
                 return 1;
             }
             default: {
@@ -991,68 +859,23 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                                 // 如果已经更新过的结点就不能再加了，会形成循环
                                 this.addToTxnNode(node, context, 'remove');
                             }
-                            if (!option || !option.dontCollect) {
-                                context.opRecords.push({
-                                    a: 'r',
-                                    e: entity,
-                                    f: (operation as DeduceRemoveOperation<ED[T]['Schema']>).filter,
-                                });
-                            }
                         }
                         else {
-                            const data2 = Object.assign(data as DeduceUpdateOperationData<ED[T]['Schema']>, node.$next, {
-                                $$updateAt$$: data.$$updateAt$$ || now,
-                            });
-                            node.$next = data2;
+                            node.$next = data;
                             if (!alreadyDirtyNode) {
                                 // 如果已经更新过的结点就不能再加了，会形成循环
                                 this.addToTxnNode(node, context, 'update');
-                            }
-                            if (!option || !option.dontCollect) {
-                                context.opRecords.push({
-                                    a: 'u',
-                                    e: entity,
-                                    d: data2,
-                                    f: (operation as DeduceUpdateOperation<ED[T]['Schema']>).filter,
-                                });
                             }
                         }
                     }
                 );
 
-                if (!option?.dontCreateOper && !['oper', 'operEntity', 'modiEntity'].includes(entity as string) && rows.length > 0) {
-                    // 按照框架要求生成Oper和OperEntity这两个内置的对象
-                    const operData: CreateOper = {
-                        id: operId,
-                        action,
-                        data,
-                        operatorId: await context.getCurrentUserId(),
-                        operEntity$oper: [],
-                    };
-
-                    for (const row of rows) {
-                        (operData.operEntity$oper as Array<OakOperation<"create", Omit<CreateOperEntity, "oper" | "operId">>>).push({
-                            id: 'dummy',
-                            action: 'create',
-                            data: {
-                                id: await generateNewId(),
-                                entity,
-                                entityId: row.id,
-                            }
-                        });
-                    }
-                    await this.cascadeUpdate('oper', {
-                        id: 'dummy',
-                        action: 'create',
-                        data: operData,
-                    }, context);
-                }
                 return rows.length;
             }
         }
     }
 
-    private async doOperation<T extends keyof ED, OP extends TreeStoreOperateOption>(entity: T, operation: ED[T]['Operation'], context: Cxt, option?: OP): Promise<OperationResult<ED>> {
+    private async doOperation<T extends keyof ED, OP extends TreeStoreOperateOption>(entity: T, operation: ED[T]['Operation'], context: Cxt, option: OP): Promise<OperationResult<ED>> {
         const { action } = operation;
         if (action === 'select') {
             throw new Error('现在不支持使用select operation');
@@ -1062,7 +885,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         }
     }
 
-    async operate<T extends keyof ED, OP extends TreeStoreOperateOption>(entity: T, operation: ED[T]['Operation'], context: Cxt, option?: OP): Promise<OperationResult<ED>> {
+    async operate<T extends keyof ED, OP extends TreeStoreOperateOption>(entity: T, operation: ED[T]['Operation'], context: Cxt, option: OP): Promise<OperationResult<ED>> {
         assert(context.getCurrentTxnId());
         return await this.doOperation(entity, operation, context, option);
     }
@@ -1244,7 +1067,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         entity: T,
         selection: S,
         context: Cxt,
-        option?: OP): Promise<SelectionResult<ED[T]['Schema'], S['data']>> {
+        option: OP): Promise<SelectionResult<ED[T]['Schema'], S['data']>> {
         assert(context.getCurrentTxnId());
         const result = await this.cascadeSelect(entity, selection, context, option);
         return {
@@ -1256,12 +1079,14 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
     async count<T extends keyof ED, OP extends TreeStoreSelectOption>(
         entity: T,
         selection: Pick<ED[T]['Selection'], 'filter' | 'count'>,
-        context: Cxt, option?: OP): Promise<number> {
+        context: Cxt, option: OP): Promise<number> {
         const { result } = await this.select(entity, Object.assign({}, selection, {
             data: {
                 id: 1,
             }
-        }) as any, context, option);
+        }) as any, context, Object.assign({}, option, {
+            dontCollect: true,
+        }));
 
         return typeof selection.count === 'number' ? Math.min(result.length, selection.count) : result.length;
     }

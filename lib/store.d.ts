@@ -8,8 +8,6 @@ interface TreeStoreSelectOption extends SelectOption {
     nodeDict?: NodeDict;
 }
 interface TreeStoreOperateOption extends OperateOption {
-    dontCreateOper?: true;
-    allowExists?: true;
 }
 export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt extends Context<ED>> extends CascadeStore<ED, Cxt> {
     private store;
@@ -49,21 +47,14 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
     private translateAttribute;
     private translateFilter;
     private translateSorter;
-    /**
-     * 将一次查询的结果集加入result
-     * @param entity
-     * @param rows
-     * @param context
-     */
-    private addToResultSelections;
     protected selectAbjointRow<T extends keyof ED, S extends ED[T]['Selection'], OP extends TreeStoreSelectOption>(entity: T, selection: S, context: Cxt, option?: OP): Promise<SelectRowShape<ED[T]['Schema'], S['data']>[]>;
-    protected updateAbjointRow<T extends keyof ED, OP extends TreeStoreOperateOption>(entity: T, operation: DeduceCreateSingleOperation<ED[T]['Schema']> | DeduceUpdateOperation<ED[T]['Schema']> | DeduceRemoveOperation<ED[T]['Schema']>, context: Cxt, option?: OP): Promise<number>;
+    protected updateAbjointRow<T extends keyof ED, OP extends TreeStoreOperateOption>(entity: T, operation: DeduceCreateSingleOperation<ED[T]['Schema']> | DeduceUpdateOperation<ED[T]['Schema']> | DeduceRemoveOperation<ED[T]['Schema']>, context: Cxt, option: OP): Promise<number>;
     private doOperation;
-    operate<T extends keyof ED, OP extends TreeStoreOperateOption>(entity: T, operation: ED[T]['Operation'], context: Cxt, option?: OP): Promise<OperationResult<ED>>;
+    operate<T extends keyof ED, OP extends TreeStoreOperateOption>(entity: T, operation: ED[T]['Operation'], context: Cxt, option: OP): Promise<OperationResult<ED>>;
     protected formProjection<T extends keyof ED>(entity: T, row: Partial<ED[T]['OpSchema']>, data: ED[T]['Selection']['data'], result: object, nodeDict: NodeDict, context: Cxt): Promise<void>;
     private formResult;
-    select<T extends keyof ED, S extends ED[T]['Selection'], OP extends TreeStoreSelectOption>(entity: T, selection: S, context: Cxt, option?: OP): Promise<SelectionResult<ED[T]['Schema'], S['data']>>;
-    count<T extends keyof ED, OP extends TreeStoreSelectOption>(entity: T, selection: Pick<ED[T]['Selection'], 'filter' | 'count'>, context: Cxt, option?: OP): Promise<number>;
+    select<T extends keyof ED, S extends ED[T]['Selection'], OP extends TreeStoreSelectOption>(entity: T, selection: S, context: Cxt, option: OP): Promise<SelectionResult<ED[T]['Schema'], S['data']>>;
+    count<T extends keyof ED, OP extends TreeStoreSelectOption>(entity: T, selection: Pick<ED[T]['Selection'], 'filter' | 'count'>, context: Cxt, option: OP): Promise<number>;
     private addToTxnNode;
     getStat(): {
         create: number;
