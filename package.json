@@ -18,7 +18,7 @@
         "test": "cross-env TS_NODE_PROJECT='tsconfig.mocha.json' mocha",
         "build": "tsc"
     },
-    "main": "lib/index",
+    "main": "src/index",
     "devDependencies": {
         "@babel/cli": "^7.12.13",
         "@babel/core": "^7.12.13",

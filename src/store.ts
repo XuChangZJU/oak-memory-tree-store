@@ -587,7 +587,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                             if (obscurePass(row, 'entity', option) || obscurePass(row, 'entityId', option)) {
                                 return true;
                             }
-                            if ((row as any).entity !== attr || (row as any).entityId) {
+                            if ((row as any).entity !== attr || !(row as any).entityId) {
                                 return false;
                             }
                             const node2 = get(this.store, `${attr}.${(row as any).entityId}`);
@@ -801,6 +801,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         switch (action) {
             case 'create': {
                 const { id } = data as DeduceCreateOperationData<ED[T]["Schema"]>;
+                assert(id);
                 // const node = this.store[entity] && (this.store[entity]!)[id as string];
                 // const row = node && this.constructRow(node, context) || {};
                 /* if (row) {
