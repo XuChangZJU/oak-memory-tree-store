@@ -413,10 +413,10 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                     assert(typeof exists === 'boolean');
                     fns.push(async (row) => {
                         if (exists) {
-                            return [null].includes(row[attr]) || obscurePassLocal(row);
+                            return ![null, undefined].includes(row[attr]) || obscurePassLocal(row);
                         }
                         else {
-                            return ![null, undefined].includes(row[attr]) || obscurePassLocal(row);
+                            return [null, undefined].includes(row[attr]) || obscurePassLocal(row);
                         }
                     });
                     break;
