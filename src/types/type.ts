@@ -1,5 +1,5 @@
 import { NodeId } from "oak-domain/lib/types/Demand";
-import { EntityShape, EntityDef } from "oak-domain/src/types/Entity";
+import { EntityShape, EntityDef } from "oak-domain/lib/types/Entity";
 
 export type RowNode = {
     $txnId?: string;       // 当前加锁的事务号
