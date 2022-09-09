@@ -344,7 +344,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         };
     }
 
-    private async translateAttribute<T extends keyof ED, OP extends TreeStoreSelectOption>(filter: Q_NumberValue | Q_StringValue | Q_BooleanValue | ED[T]['Selection'] & {
+    private async translateAttribute<T extends keyof ED, OP extends TreeStoreSelectOption>(entity: T, filter: Q_NumberValue | Q_StringValue | Q_BooleanValue | Object | ED[T]['Selection'] & {
         entity: T;
     }, attr: string, context: Cxt, option?: OP): Promise<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => Promise<boolean>> {
         // 如果是模糊查询且该属性为undefined，说明没取到，返回true
@@ -355,6 +355,13 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
             return async (node) => {
                 const row = this.constructRow(node, context);
                 return row ? (row as any)[attr] === filter || obscurePassLocal(row) : false;
+            };
+        }
+        else if (this.storageSchema[entity].attributes[attr]?.type === 'object') {
+            // 如果查询的目标就是object，则转化成object的比较
+            return async (node) => {
+                const row = this.constructRow(node, context);
+                return row ? JSON.stringify((row as any)[attr]) === JSON.stringify(filter) || obscurePassLocal(row) : false;
             };
         }
         const fns: Array<(row: any, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => Promise<boolean>> = [];
@@ -576,7 +583,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
 
                 if (relation === 1) {
                     // 行本身的属性
-                    fns.push(await this.translateAttribute((filter as any)[attr], attr, context, option));
+                    fns.push(await this.translateAttribute(entity, (filter as any)[attr], attr, context, option));
                 }
                 else if (relation === 2) {
                     // 基于entity/entityId的指针
@@ -858,7 +865,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                             }
                         }
                         else {
-                            node.$next = data;
+                            node.$next = Object.assign(node.$next || {}, data);
                             if (!alreadyDirtyNode) {
                                 // 如果已经更新过的结点就不能再加了，会形成循环
                                 this.addToTxnNode(node, context, 'update');
