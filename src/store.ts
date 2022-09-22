@@ -817,7 +817,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                 
                 if (this.store[entity] && (this.store[entity]!)[id as string]) {
                     const node = this.store[entity] && (this.store[entity]!)[id as string];
-                    throw new OakCongruentRowExists(this.constructRow(node, context)!);                    
+                    throw new OakCongruentRowExists(entity as string, this.constructRow(node, context)!);                    
                 }
                 const node2: RowNode = {
                     $txnId: context.getCurrentTxnId()!,
