@@ -524,7 +524,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                     break;
                 }
                 default:
-                    break;
+                    assert(false, `目前不支持的算子${op}`);
             }
         }
         return async (node, nodeDict, exprResolveFns) => {
