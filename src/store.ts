@@ -17,6 +17,8 @@ import { RowStore } from 'oak-domain/lib/types/RowStore';
 import { isRefAttrNode, Q_BooleanValue, Q_FullTextValue, Q_NumberValue, Q_StringValue } from 'oak-domain/lib/types/Demand';
 import { judgeRelation } from 'oak-domain/lib/store/relation';
 import { execOp, Expression, ExpressionConstant, isExpression, opMultipleParams } from 'oak-domain/lib/types/Expression';
+import { resolve } from 'path';
+import { OakDeadlock } from 'oak-domain/src/types';
 
 
 interface ExprLaterCheckFn {
@@ -51,6 +53,10 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
             create: number;
             update: number;
             remove: number;
+            waitList: Array<{
+                id: string;
+                fn: Function;
+            }>;
         };
     };
     private stat: {
@@ -59,6 +65,25 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         remove: number;
         commit: number;
     };
+
+    private async waitOnTxn(id: string, context: Cxt) {
+        // 先检查自己的等待者中有没有id，以避免死锁
+        const myId = context.getCurrentTxnId()!;
+        const { waitList: myWaitList } = this.activeTxnDict[myId];
+        if (myWaitList.find(
+            ele => ele.id === id
+        )) {
+            throw new OakDeadlock();
+        }
+        const { waitList } = this.activeTxnDict[id];
+        const p = new Promise(
+            (resolve) => waitList.push({
+                id: myId,
+                fn: resolve,
+            })
+        );
+        await p;
+    }
 
     protected supportMultipleCreate(): boolean {
         return false;
@@ -814,8 +839,11 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                 /* if (row) {
                     throw new OakError(RowStore.$$LEVEL, RowStore.$$CODES.primaryKeyConfilict);
                 } */
-                
-                if (this.store[entity] && (this.store[entity]!)[id as string]) {
+                while (this.store[entity] && (this.store[entity]!)[id] && (this.store[entity]!)[id].$txnId) {
+                    assert((this.store[entity]!)[id].$txnId !== context.getCurrentTxnId());
+                    await this.waitOnTxn((this.store[entity]!)[id].$txnId!, context);
+                }
+                if (this.store[entity] && (this.store[entity]!)[id]) {
                     const node = this.store[entity] && (this.store[entity]!)[id as string];
                     throw new OakCongruentRowExists(entity as string, this.constructRow(node, context)!);
                 }
@@ -850,35 +878,36 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                 const rows = await this.selectAbjointRow(entity, selection, context);
 
                 const ids = rows.map(ele => ele.id);
-                ids.forEach(
-                    (id) => {
-                        let alreadyDirtyNode = false;
-                        const node = (this.store[entity]!)[id as string];
-                        assert(node);
-                        if (!node.$txnId) {
-                            node.$txnId = context.getCurrentTxnId()!;
-                        }
-                        else {
-                            assert(node.$txnId === context.getCurrentTxnId());
-                            alreadyDirtyNode = true;
-                        }
-                        if (action === 'remove') {
-                            node.$next = null;
-                            node.$path = `${entity as string}.${id!}`;
-                            if (!alreadyDirtyNode) {
-                                // 如果已经更新过的结点就不能再加了，会形成循环
-                                this.addToTxnNode(node, context, 'remove');
-                            }
-                        }
-                        else {
-                            node.$next = Object.assign(node.$next || {}, data);
-                            if (!alreadyDirtyNode) {
-                                // 如果已经更新过的结点就不能再加了，会形成循环
-                                this.addToTxnNode(node, context, 'update');
-                            }
+                for (const id of ids) {
+                    let alreadyDirtyNode = false;
+                    const node = (this.store[entity]!)[id as string];
+                    assert(node);
+                    while(node.$txnId && node.$txnId !== context.getCurrentTxnId()) {
+                        await this.waitOnTxn(node.$txnId, context);
+                    }
+                    if (!node.$txnId) {
+                        node.$txnId = context.getCurrentTxnId()!;
+                    }
+                    else {
+                        assert(node.$txnId === context.getCurrentTxnId());
+                        alreadyDirtyNode = true;
+                    }
+                    if (action === 'remove') {
+                        node.$next = null;
+                        node.$path = `${entity as string}.${id!}`;
+                        if (!alreadyDirtyNode) {
+                            // 如果已经更新过的结点就不能再加了，会形成循环
+                            this.addToTxnNode(node, context, 'remove');
                         }
                     }
-                );
+                    else {
+                        node.$next = Object.assign(node.$next || {}, data);
+                        if (!alreadyDirtyNode) {
+                            // 如果已经更新过的结点就不能再加了，会形成循环
+                            this.addToTxnNode(node, context, 'update');
+                        }
+                    }
+                }
 
                 return rows.length;
             }
@@ -1129,6 +1158,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                 create: 0,
                 update: 0,
                 remove: 0,
+                waitList: [],
             },
         });
         return uuid;
@@ -1167,6 +1197,10 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
             this.stat.remove += this.activeTxnDict[uuid].remove;
             this.stat.commit++;
         }
+        // 唤起等待者
+        for (const waiter of this.activeTxnDict[uuid].waitList) {
+            waiter.fn();
+        }
 
         unset(this.activeTxnDict, uuid);
     }
@@ -1196,6 +1230,10 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                 assert(node.$txnId === undefined);
             }
             node = node2;
+        }
+        // 唤起等待者
+        for (const waiter of this.activeTxnDict[uuid].waitList) {
+            waiter.fn();
         }
         unset(this.activeTxnDict, uuid);
     }

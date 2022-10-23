@@ -13,6 +13,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
     private store;
     private activeTxnDict;
     private stat;
+    private waitOnTxn;
     protected supportMultipleCreate(): boolean;
     protected supportManyToOneJoin(): boolean;
     resetInitialData(data: {
