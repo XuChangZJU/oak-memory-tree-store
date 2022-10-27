@@ -790,6 +790,13 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         const entityNodes = this.store[entity] ? Object.values(this.store[entity]!) : [];
         const nodes = [];
         for (const n of entityNodes) {
+            // 做个优化，若是插入的行不用等
+            if (n.$txnId && n.$txnId !== context.getCurrentTxnId() && n.$current === null) {
+                continue;
+            }
+            while(n.$txnId && n.$txnId !== context.getCurrentTxnId()) {
+                await this.waitOnTxn(n.$txnId, context);
+            }
             const nodeDict2: NodeDict = {};
             if (nodeDict) {
                 Object.assign(nodeDict2, nodeDict);
