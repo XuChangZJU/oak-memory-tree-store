@@ -18,7 +18,7 @@ import { isRefAttrNode, Q_BooleanValue, Q_FullTextValue, Q_NumberValue, Q_String
 import { judgeRelation } from 'oak-domain/lib/store/relation';
 import { execOp, Expression, ExpressionConstant, isExpression, opMultipleParams } from 'oak-domain/lib/types/Expression';
 import { resolve } from 'path';
-import { OakDeadlock } from 'oak-domain/src/types';
+import { OakDeadlock } from 'oak-domain/lib/types';
 
 
 interface ExprLaterCheckFn {
