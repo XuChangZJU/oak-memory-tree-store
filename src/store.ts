@@ -4,9 +4,10 @@ import {
     DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation,
     DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateOption, OpRecord,
     DeduceCreateOperationData, UpdateOpResult, RemoveOpResult, SelectOpResult,
-    EntityDict, SelectRowShape, SelectionResult, SelectOption} from "oak-domain/lib/types/Entity";
+    EntityDict, SelectRowShape, SelectionResult, SelectOption
+} from "oak-domain/lib/types/Entity";
 import { ExpressionKey, EXPRESSION_PREFIX, NodeId, RefAttr } from 'oak-domain/lib/types/Demand';
-import { OakCongruentRowExists } from 'oak-domain/lib/types/Exception';
+import { OakCongruentRowExists, OakRowUnexistedException } from 'oak-domain/lib/types/Exception';
 import { EntityDict as BaseEntityDict } from 'oak-domain/lib/base-app-domain';
 import { CascadeStore } from 'oak-domain/lib/store/CascadeStore';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
@@ -34,11 +35,11 @@ function obscurePass(row: any, attr: string, option?: SelectOption): boolean {
 }
 
 
-interface TreeStoreSelectOption extends SelectOption {
+export interface TreeStoreSelectOption extends SelectOption {
     nodeDict?: NodeDict;
 }
 
-interface TreeStoreOperateOption extends OperateOption {
+export interface TreeStoreOperateOption extends OperateOption {
 };
 
 export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt extends Context<ED>> extends CascadeStore<ED, Cxt> {
@@ -102,9 +103,24 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         commit: number;
     }) {
         this.store = {};
+        const now = Date.now();
         for (const entity in data) {
+            const { attributes } = this.getSchema()[entity];
             this.store[entity] = {};
             for (const row of data[entity]!) {
+                for (const key in attributes) {
+                    if (row[key] === undefined) {
+                        Object.assign(row, {
+                            [key]: null,
+                        });
+                    }
+                }
+                Object.assign(row, {
+                    $$createAt$$: now,
+                    $$deleteAt$$: null,
+                    $$updateAt$$: now,
+                    $$seq$$: `${Math.ceil((Math.random() + 1000) * 100)}`,
+                })
                 set(this.store, `${entity}.${row.id}.$current`, row);
             }
         }
@@ -794,7 +810,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
             if (n.$txnId && n.$txnId !== context.getCurrentTxnId() && n.$current === null) {
                 continue;
             }
-            while(n.$txnId && n.$txnId !== context.getCurrentTxnId()) {
+            while (n.$txnId && n.$txnId !== context.getCurrentTxnId()) {
                 await this.waitOnTxn(n.$txnId, context);
             }
             const nodeDict2: NodeDict = {};
@@ -836,7 +852,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         context: Cxt,
         option: OP): Promise<number> {
         const { data, action, id: operId } = operation;
-        
+
         switch (action) {
             case 'create': {
                 const { id } = data as DeduceCreateOperationData<ED[T]["Schema"]>;
@@ -889,7 +905,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                     let alreadyDirtyNode = false;
                     const node = (this.store[entity]!)[id as string];
                     assert(node);
-                    while(node.$txnId && node.$txnId !== context.getCurrentTxnId()) {
+                    while (node.$txnId && node.$txnId !== context.getCurrentTxnId()) {
                         await this.waitOnTxn(node.$txnId, context);
                     }
                     if (!node.$txnId) {
@@ -936,30 +952,35 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         return await this.doOperation(entity, operation, context, option);
     }
 
-    protected async formProjection<T extends keyof ED>(
+    /**
+     * 计算最终结果集当中的函数，这个函数可能测试不够充分
+     * @param entity 
+     * @param projection 
+     * @param data 
+     * @param nodeDict 
+     * @param context 
+     */
+    protected async formExprInResult<T extends keyof ED>(
         entity: T,
-        row: Partial<ED[T]['OpSchema']>,
-        data: ED[T]['Selection']['data'],
-        result: object,
+        projection: ED[T]['Selection']['data'],
+        data: ED[T]['Schema'],
         nodeDict: NodeDict,
         context: Cxt) {
-        const row2 = row as any;
-        const data2 = data as any;
 
         const laterExprDict: {
             [A in ExpressionKey]?: ExprLaterCheckFn;
         } = {};
-        for (const attr in data) {
+        for (const attr in projection) {
             if (attr.startsWith(EXPRESSION_PREFIX)) {
-                const ExprNodeTranslator = this.translateExpression(entity, data2[attr], context, {});
-                const exprResult = await ExprNodeTranslator(row, nodeDict);
+                const ExprNodeTranslator = this.translateExpression(entity, projection[attr], context, {});
+                const exprResult = await ExprNodeTranslator(data, nodeDict);
                 if (typeof exprResult === 'function') {
                     Object.assign(laterExprDict, {
                         [attr]: exprResult,
                     });
                 }
                 else {
-                    Object.assign(result, {
+                    Object.assign(data, {
                         [attr]: exprResult,
                     });
                 }
@@ -968,49 +989,31 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                 const nodeId = data[attr] as NodeId;
                 assert(!nodeDict.hasOwnProperty(nodeId), new OakError(RowStore.$$LEVEL, RowStore.$$CODES.nodeIdRepeated, `Filter中的nodeId「${nodeId}」出现了多次`));
                 Object.assign(nodeDict, {
-                    [nodeId]: row,
+                    [nodeId]: data,
                 });
             }
         }
 
-        for (const attr in data) {
-            if (!attr.startsWith(EXPRESSION_PREFIX) && attr !== '#id') {
-                const relation = judgeRelation(this.storageSchema, entity, attr);
-                if (relation === 1) {
-                    Object.assign(result, {
-                        [attr]: row2[attr],
-                    });
+        for (const attr in projection) {
+            const rel = this.judgeRelation(entity, attr);
+            if (rel === 1) {
+            }
+            else if (rel === 2) {
+                if (data[attr]) {
+                    await this.formExprInResult(attr, projection[attr], data[attr], nodeDict, context);
                 }
-                else if (relation === 2) {
-                    if (row2[attr]) {
-                        const result2 = {};
-                        const { entity, entityId } = row2;
-                        await this.formProjection(attr, row2[attr], data2[attr], result2, nodeDict, context);
-                        Object.assign(result, {
-                            [attr]: result2,
-                            entity,
-                            entityId,
-                        });
-                    }
+            }
+            else if (typeof rel === 'string') {
+                if (data[attr]) {
+                    const result2 = {};
+                    await this.formExprInResult(rel, projection[attr], data[attr], nodeDict, context);
                 }
-                else if (typeof relation === 'string') {
-                    if (row2[attr]) {
-                        const result2 = {};
-                        await this.formProjection(relation, row2[attr], data2[attr], result2, nodeDict, context);
-                        Object.assign(result, {
-                            [attr]: result2,
-                        });
-                    }
-                }
-                else {
-                    assert(relation instanceof Array);
-                    if (row2[attr] instanceof Array) {
-                        const result2 = await this.formResult(relation[0], row2[attr], data2[attr], context, nodeDict);
-
-                        Object.assign(result, {
-                            [attr]: result2,
-                        });
-                    }
+            }
+            else if (rel instanceof Array){
+                if (data[attr] && (data[attr] as any) instanceof Array) {
+                    await Promise.all(data[attr].map(
+                        (ele: any) => this.formExprInResult(rel[0], projection[attr].data, ele, nodeDict, context)
+                    ));
                 }
             }
         }
@@ -1019,7 +1022,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
             const exprResult = laterExprDict[attr as ExpressionKey]!(nodeDict);
             // projection是不应出现计算不出来的情况
             assert(typeof exprResult !== 'function', new OakError(RowStore.$$LEVEL, RowStore.$$CODES.expressionUnresolved, 'data中的expr无法计算，请检查命名与引用的一致性'));
-            Object.assign(result, {
+            Object.assign(data, {
                 [attr]: exprResult,
             });
         }
@@ -1029,8 +1032,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         entity: T,
         rows: Array<Partial<ED[T]['Schema']>>,
         selection: S,
-        context: Cxt,
-        nodeDict?: NodeDict) {
+        context: Cxt) {
         const { data, sorter, indexFrom, count } = selection;
 
         const findAvailableExprName = (current: string[]) => {
@@ -1082,16 +1084,41 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
             );
         }
 
-        // 先计算projection
+        // 先计算projection，formResult只处理abjoint的行，不需要考虑expression和一对多多对一关系
         const rows2: Array<SelectRowShape<ED[T]['Schema'], S['data']>> = [];
+        const incompletedRowIds: string[] = [];
+        const { data: projection } = selection;
         for (const row of rows) {
             const result = {};
-            const nodeDict2: NodeDict = {};
-            if (nodeDict) {
-                Object.assign(nodeDict2, nodeDict);
+            for (const attr in projection) {
+                const rel = this.judgeRelation(entity, attr);
+                if (rel === 1) {
+                    if (row[attr] === undefined) {
+                        incompletedRowIds.push(row.id!);
+                        break;
+                    }
+                    else {
+                        Object.assign(result, {
+                            [attr]: row[attr],
+                        });
+                    }
+                }
             }
-            await this.formProjection(entity, row, data, result, nodeDict2, context);
             rows2.push(result as SelectRowShape<ED[T]['Schema'], S['data']>);
+        }
+        if (incompletedRowIds.length > 0) {
+            // 如果有缺失属性的行，则报OakRowUnexistedException错误
+            throw new OakRowUnexistedException([{
+                entity,
+                selection: {                    
+                    data: projection,
+                    filter: {
+                        id: {
+                            $in: incompletedRowIds,
+                        },
+                    },
+                },
+            }]);
         }
 
         // 再计算sorter
@@ -1116,6 +1143,8 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         option: OP): Promise<SelectionResult<ED[T]['Schema'], S['data']>> {
         assert(context.getCurrentTxnId());
         const result = await this.cascadeSelect(entity, selection, context, option);
+        // 在这里再计算所有的表达式
+        await this.formExprInResult(entity, selection.data, result as any, {}, context);
         return {
             result,
             // stats,
@@ -1246,7 +1275,11 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
     }
 
     // 将输入的OpRecord同步到数据中
-    async sync(opRecords: Array<OpRecord<ED>>, context: Cxt) {
+    async sync<OP extends TreeStoreOperateOption>(opRecords: Array<OpRecord<ED>>, context: Cxt, option?: OP) {
+        const option2 = Object.assign({}, option, {
+            dontCollect: true,
+            dontCreateOper: true,            
+        });
         for (const record of opRecords) {
             switch (record.a) {
                 case 'c': {
@@ -1261,20 +1294,14 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                                     filter: {
                                         id: dd.id,
                                     } as any,
-                                }, context, {
-                                    dontCollect: true,
-                                    dontCreateOper: true,                                    
-                                })
+                                }, context, option2)
                             }
                             else {
                                 await this.updateAbjointRow(e, {
                                     id: 'dummy',
                                     action: 'create',
                                     data: dd,
-                                }, context, {
-                                    dontCollect: true,
-                                    dontCreateOper: true,
-                                });
+                                }, context, option2);
                             }
                         }
                     }
@@ -1287,20 +1314,14 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                                 filter: {
                                     id: d.id,
                                 } as any,
-                            }, context, {
-                                dontCollect: true,
-                                dontCreateOper: true,                                    
-                            });
+                            }, context, option2);
                         }
                         else {
                             await this.updateAbjointRow(e, {
                                 id: 'dummy',
                                 action: 'create',
                                 data: d,
-                            }, context, {
-                                dontCollect: true,
-                                dontCreateOper: true,
-                            });
+                            }, context, option2);
                         }
                     }
                     break;
@@ -1312,10 +1333,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                         action: 'update',
                         data: d,
                         filter: f,
-                    }, context, {
-                        dontCollect: true,
-                        dontCreateOper: true,                                    
-                    });
+                    }, context, option2);
                     break;
                 }
                 case 'r': {
@@ -1325,10 +1343,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                         action: 'remove',
                         data: {},
                         filter: f,
-                    }, context, {
-                        dontCollect: true,
-                        dontCreateOper: true,
-                    });
+                    }, context, option2);
                     break;
                 }
                 case 's': {
@@ -1343,20 +1358,14 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                                     filter: {
                                         id,
                                     } as any,
-                                }, context, {
-                                    dontCollect: true,
-                                    dontCreateOper: true,                                    
-                                });
+                                }, context, option2);
                             }
                             else {
                                 await this.updateAbjointRow(entity, {
                                     id: 'dummy',
                                     action: 'create',
                                     data: d[entity]![id],
-                                }, context, {
-                                    dontCollect: true,
-                                    dontCreateOper: true,
-                                });
+                                }, context, option2);
                             }
                         }
                     }

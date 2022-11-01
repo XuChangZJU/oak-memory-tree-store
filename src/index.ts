@@ -1,5 +1,7 @@
-import TreeStore from "./store";
+import TreeStore, { TreeStoreOperateOption, TreeStoreSelectOption } from "./store";
 
 export {
     TreeStore,
+    TreeStoreOperateOption,
+    TreeStoreSelectOption,
 };

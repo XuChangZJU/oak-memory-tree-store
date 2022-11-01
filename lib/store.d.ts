@@ -4,10 +4,10 @@ import { CascadeStore } from 'oak-domain/lib/store/CascadeStore';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
 import { Context } from "oak-domain/lib/types/Context";
 import { NodeDict } from "./types/type";
-interface TreeStoreSelectOption extends SelectOption {
+export interface TreeStoreSelectOption extends SelectOption {
     nodeDict?: NodeDict;
 }
-interface TreeStoreOperateOption extends OperateOption {
+export interface TreeStoreOperateOption extends OperateOption {
 }
 export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt extends Context<ED>> extends CascadeStore<ED, Cxt> {
     private store;
@@ -52,7 +52,15 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
     protected updateAbjointRow<T extends keyof ED, OP extends TreeStoreOperateOption>(entity: T, operation: DeduceCreateSingleOperation<ED[T]['Schema']> | DeduceUpdateOperation<ED[T]['Schema']> | DeduceRemoveOperation<ED[T]['Schema']>, context: Cxt, option: OP): Promise<number>;
     private doOperation;
     operate<T extends keyof ED, OP extends TreeStoreOperateOption>(entity: T, operation: ED[T]['Operation'], context: Cxt, option: OP): Promise<OperationResult<ED>>;
-    protected formProjection<T extends keyof ED>(entity: T, row: Partial<ED[T]['OpSchema']>, data: ED[T]['Selection']['data'], result: object, nodeDict: NodeDict, context: Cxt): Promise<void>;
+    /**
+     * 计算最终结果集当中的函数，这个函数可能测试不够充分
+     * @param entity
+     * @param projection
+     * @param data
+     * @param nodeDict
+     * @param context
+     */
+    protected formExprInResult<T extends keyof ED>(entity: T, projection: ED[T]['Selection']['data'], data: ED[T]['Schema'], nodeDict: NodeDict, context: Cxt): Promise<void>;
     private formResult;
     select<T extends keyof ED, S extends ED[T]['Selection'], OP extends TreeStoreSelectOption>(entity: T, selection: S, context: Cxt, option: OP): Promise<SelectionResult<ED[T]['Schema'], S['data']>>;
     count<T extends keyof ED, OP extends TreeStoreSelectOption>(entity: T, selection: Pick<ED[T]['Selection'], 'filter' | 'count'>, context: Cxt, option: OP): Promise<number>;
@@ -66,6 +74,5 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
     begin(): Promise<string>;
     commit(uuid: string): Promise<void>;
     rollback(uuid: string): Promise<void>;
-    sync(opRecords: Array<OpRecord<ED>>, context: Cxt): Promise<void>;
+    sync<OP extends TreeStoreOperateOption>(opRecords: Array<OpRecord<ED>>, context: Cxt, option?: OP): Promise<void>;
 }
-export {};
