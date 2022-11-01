@@ -850,7 +850,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         entity: T,
         operation: DeduceCreateSingleOperation<ED[T]['Schema']> | DeduceUpdateOperation<ED[T]['Schema']> | DeduceRemoveOperation<ED[T]['Schema']>,
         context: Cxt,
-        option: OP): Promise<number> {
+        option?: OP): Promise<number> {
         const { data, action, id: operId } = operation;
 
         switch (action) {

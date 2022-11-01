@@ -49,7 +49,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
     private translateFilter;
     private translateSorter;
     protected selectAbjointRow<T extends keyof ED, S extends ED[T]['Selection'], OP extends TreeStoreSelectOption>(entity: T, selection: S, context: Cxt, option?: OP): Promise<SelectRowShape<ED[T]['Schema'], S['data']>[]>;
-    protected updateAbjointRow<T extends keyof ED, OP extends TreeStoreOperateOption>(entity: T, operation: DeduceCreateSingleOperation<ED[T]['Schema']> | DeduceUpdateOperation<ED[T]['Schema']> | DeduceRemoveOperation<ED[T]['Schema']>, context: Cxt, option: OP): Promise<number>;
+    protected updateAbjointRow<T extends keyof ED, OP extends TreeStoreOperateOption>(entity: T, operation: DeduceCreateSingleOperation<ED[T]['Schema']> | DeduceUpdateOperation<ED[T]['Schema']> | DeduceRemoveOperation<ED[T]['Schema']>, context: Cxt, option?: OP): Promise<number>;
     private doOperation;
     operate<T extends keyof ED, OP extends TreeStoreOperateOption>(entity: T, operation: ED[T]['Operation'], context: Cxt, option: OP): Promise<OperationResult<ED>>;
     /**
