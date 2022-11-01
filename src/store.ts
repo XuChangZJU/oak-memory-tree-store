@@ -115,12 +115,30 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                         });
                     }
                 }
-                Object.assign(row, {
-                    $$createAt$$: now,
-                    $$deleteAt$$: null,
-                    $$updateAt$$: now,
-                    $$seq$$: `${Math.ceil((Math.random() + 1000) * 100)}`,
-                })
+                /**
+                 * 处理初始化数据
+                 */
+                if (!row.$$createAt$$) {
+                    Object.assign(row, {
+                        $$createAt$$: now,
+                    });
+                }
+                if (!row.$$deleteAt$$) {
+                    Object.assign(row, {
+                        $$deleteAt$$: null,
+                    });
+                }
+                if (!row.$$updateAt$$) {
+                    Object.assign(row, {
+                        $$updateAt$$: now,
+                    });
+                }
+                if (!row.$$seq$$) {
+                    Object.assign(row, {
+                        $$seq$$: `${Math.ceil((Math.random() + 1000) * 100)}`,
+                    });
+                }
+                assert(row.id);
                 set(this.store, `${entity}.${row.id}.$current`, row);
             }
         }
@@ -1009,7 +1027,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                     await this.formExprInResult(rel, projection[attr], data[attr], nodeDict, context);
                 }
             }
-            else if (rel instanceof Array){
+            else if (rel instanceof Array) {
                 if (data[attr] && (data[attr] as any) instanceof Array) {
                     await Promise.all(data[attr].map(
                         (ele: any) => this.formExprInResult(rel[0], projection[attr].data, ele, nodeDict, context)
@@ -1110,7 +1128,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
             // 如果有缺失属性的行，则报OakRowUnexistedException错误
             throw new OakRowUnexistedException([{
                 entity,
-                selection: {                    
+                selection: {
                     data: projection,
                     filter: {
                         id: {
@@ -1278,7 +1296,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
     async sync<OP extends TreeStoreOperateOption>(opRecords: Array<OpRecord<ED>>, context: Cxt, option?: OP) {
         const option2 = Object.assign({}, option, {
             dontCollect: true,
-            dontCreateOper: true,            
+            dontCreateOper: true,
         });
         for (const record of opRecords) {
             switch (record.a) {
