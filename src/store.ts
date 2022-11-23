@@ -16,7 +16,7 @@ import { judgeRelation } from 'oak-domain/lib/store/relation';
 import { execOp, Expression, ExpressionConstant, isExpression, opMultipleParams } from 'oak-domain/lib/types/Expression';
 import { SyncContext } from 'oak-domain/lib/store/SyncRowStore';
 import { AsyncContext } from 'oak-domain/lib/store/AsyncRowStore';
-import { CascadeStore } from 'oak-domain/src/store/CascadeStore';
+import { CascadeStore } from 'oak-domain/lib/store/CascadeStore';
 import { Context } from 'oak-domain/lib/types';
 
 
