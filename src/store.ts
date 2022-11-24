@@ -4,7 +4,7 @@ import {
     DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation,
     DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateOption, OpRecord,
     DeduceCreateOperationData, UpdateOpResult, RemoveOpResult, SelectOpResult,
-    EntityDict, SelectOption
+    EntityDict, SelectOption, DeleteAtAttribute
 } from "oak-domain/lib/types/Entity";
 import { ExpressionKey, EXPRESSION_PREFIX, NodeId, RefAttr } from 'oak-domain/lib/types/Demand';
 import { OakCongruentRowExists, OakException, OakRowUnexistedException } from 'oak-domain/lib/types/Exception';
@@ -180,7 +180,10 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         let data = cloneDeep(node.$current);
         if (context.getCurrentTxnId() && node.$txnId === context.getCurrentTxnId()) {
             if (!node.$next) {
-                return null;
+                // 如果是删除，返回带$$deleteAt$$的行
+                return Object.assign({}, data, {
+                    [DeleteAtAttribute]: 1,
+                });
             }
             else {
                 return Object.assign({}, data, node.$next);
@@ -1131,6 +1134,11 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                         });
                     }
                 }
+            }
+            if (row.$$deleteAt$$) {
+                Object.assign(result, {
+                    [DeleteAtAttribute]: row.$$deleteAt$$,
+                })
             }
             rows2.push(result as Partial<ED[T]['Schema']>);
         }
