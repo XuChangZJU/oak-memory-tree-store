@@ -4,22 +4,20 @@ import {
     DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation,
     DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateOption, OpRecord,
     DeduceCreateOperationData, UpdateOpResult, RemoveOpResult, SelectOpResult,
-    EntityDict, SelectRowShape, SelectionResult, SelectOption
+    EntityDict, SelectOption, DeleteAtAttribute
 } from "oak-domain/lib/types/Entity";
 import { ExpressionKey, EXPRESSION_PREFIX, NodeId, RefAttr } from 'oak-domain/lib/types/Demand';
-import { OakCongruentRowExists, OakRowUnexistedException } from 'oak-domain/lib/types/Exception';
+import { OakCongruentRowExists, OakException, OakRowUnexistedException } from 'oak-domain/lib/types/Exception';
 import { EntityDict as BaseEntityDict } from 'oak-domain/lib/base-app-domain';
-import { CascadeStore } from 'oak-domain/lib/store/CascadeStore';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
-import { OakError } from 'oak-domain/lib/OakError';
-import { Context } from "oak-domain/lib/types/Context";
 import { ExprResolveFn, NodeDict, RowNode } from "./types/type";
-import { RowStore } from 'oak-domain/lib/types/RowStore';
 import { isRefAttrNode, Q_BooleanValue, Q_FullTextValue, Q_NumberValue, Q_StringValue } from 'oak-domain/lib/types/Demand';
 import { judgeRelation } from 'oak-domain/lib/store/relation';
 import { execOp, Expression, ExpressionConstant, isExpression, opMultipleParams } from 'oak-domain/lib/types/Expression';
-import { resolve } from 'path';
-import { OakDeadlock } from 'oak-domain/lib/types';
+import { SyncContext } from 'oak-domain/lib/store/SyncRowStore';
+import { AsyncContext } from 'oak-domain/lib/store/AsyncRowStore';
+import { CascadeStore } from 'oak-domain/lib/store/CascadeStore';
+import { Context } from 'oak-domain/lib/types';
 
 
 interface ExprLaterCheckFn {
@@ -34,6 +32,9 @@ function obscurePass(row: any, attr: string, option?: SelectOption): boolean {
     return !!(option?.obscure && row[attr] === undefined);
 }
 
+class OakExpressionUnresolvedException extends OakException {
+
+}
 
 export interface TreeStoreSelectOption extends SelectOption {
     nodeDict?: NodeDict;
@@ -42,7 +43,7 @@ export interface TreeStoreSelectOption extends SelectOption {
 export interface TreeStoreOperateOption extends OperateOption {
 };
 
-export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt extends Context<ED>> extends CascadeStore<ED, Cxt> {
+export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends CascadeStore<ED> {
     private store: {
         [T in keyof ED]?: {
             [ID: string]: RowNode;
@@ -67,7 +68,8 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         commit: number;
     };
 
-    private async waitOnTxn(id: string, context: Cxt) {
+    /* treeStore改成同步以后不会再出现
+     private async waitOnTxn(id: string, context: Cxt) {
         // 先检查自己的等待者中有没有id，以避免死锁
         const myId = context.getCurrentTxnId()!;
         const { waitList: myWaitList } = this.activeTxnDict[myId];
@@ -84,7 +86,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
             })
         );
         await p;
-    }
+    } */
 
     protected supportMultipleCreate(): boolean {
         return false;
@@ -174,11 +176,14 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         };
     }
 
-    private constructRow(node: RowNode, context: Cxt) {
+    private constructRow<Cxt extends Context>(node: RowNode, context: Cxt) {
         let data = cloneDeep(node.$current);
         if (context.getCurrentTxnId() && node.$txnId === context.getCurrentTxnId()) {
             if (!node.$next) {
-                return null;
+                // 如果是删除，返回带$$deleteAt$$的行
+                return Object.assign({}, data, {
+                    [DeleteAtAttribute]: 1,
+                });
             }
             else {
                 return Object.assign({}, data, node.$next);
@@ -187,21 +192,21 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         return data;
     }
 
-    private translateLogicFilter<T extends keyof ED, OP extends TreeStoreSelectOption>(
+    private translateLogicFilter<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(
         entity: T,
         filter: DeduceFilter<ED[T]['Schema']>,
         attr: string,
         context: Cxt,
-        option?: OP): (node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => Promise<boolean> {
+        option?: OP): (node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean {
         switch (attr) {
             case '$and': {
                 const filters = filter[attr];
                 const fns = filters!.map(
                     ele => this.translateFilter(entity, ele, context, option)
                 );
-                return async (node, nodeDict, exprResolveFns) => {
+                return (node, nodeDict, exprResolveFns) => {
                     for (const fn of fns) {
-                        if (!await (await fn)(node, nodeDict, exprResolveFns)) {
+                        if (!fn(node, nodeDict, exprResolveFns)) {
                             return false;
                         }
                     }
@@ -213,9 +218,9 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                 const fns = filters!.map(
                     ele => this.translateFilter(entity, ele, context, option)
                 );
-                return async (node, nodeDict, exprResolveFns) => {
+                return (node, nodeDict, exprResolveFns) => {
                     for (const fn of fns) {
-                        if (await (await fn)(node, nodeDict, exprResolveFns)) {
+                        if (fn(node, nodeDict, exprResolveFns)) {
                             return true;
                         }
                     }
@@ -226,8 +231,8 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
             case '$not': {
                 const filter2 = filter[attr];
                 const fn = this.translateFilter(entity, filter2!, context, option);
-                return async (node, nodeDict, exprResolveFns) => {
-                    if (await (await fn)(node, nodeDict, exprResolveFns)) {
+                return (node, nodeDict, exprResolveFns) => {
+                    if (fn(node, nodeDict, exprResolveFns)) {
                         return false;
                     }
                     return true;
@@ -251,7 +256,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
      * @param context 
      * @returns 
      */
-    private translateExpressionNode<T extends keyof ED, OP extends TreeStoreSelectOption>(
+    private translateExpressionNode<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(
         entity: T,
         expression: Expression<keyof ED[T]['Schema']> | RefAttr<keyof ED[T]['Schema']> | ExpressionConstant,
         context: Cxt,
@@ -362,13 +367,13 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         }
     }
 
-    private translateExpression<T extends keyof ED, OP extends TreeStoreSelectOption>(
+    private translateExpression<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(
         entity: T,
         expression: Expression<keyof ED[T]['Schema']>,
-        context: Cxt, option?: OP): (row: Partial<ED[T]['OpSchema']>, nodeDict: NodeDict) => Promise<ExpressionConstant | ExprLaterCheckFn> {
+        context: Cxt, option?: OP): (row: Partial<ED[T]['OpSchema']>, nodeDict: NodeDict) => ExpressionConstant | ExprLaterCheckFn {
         const expr = this.translateExpressionNode(entity, expression, context, option);
 
-        return async (row, nodeDict) => {
+        return (row, nodeDict) => {
             if (typeof expr !== 'function') {
                 return expr;
             }
@@ -377,13 +382,13 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         };
     }
 
-    private translateFulltext<T extends keyof ED, OP extends TreeStoreSelectOption>(
+    private translateFulltext<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(
         entity: T,
         filter: Q_FullTextValue,
         context: Cxt,
-        option?: OP): (node: RowNode) => Promise<boolean> {
+        option?: OP): (node: RowNode) => boolean {
         // 全文索引查找
-        const { [entity]: { indexes } } = this.storageSchema;
+        const { [entity]: { indexes } } = this.getSchema();
         const fulltextIndex = indexes!.find(
             ele => ele.config && ele.config.type === 'fulltext'
         );
@@ -391,7 +396,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         const { attributes } = fulltextIndex!;
         const { $search } = filter;
 
-        return async (node) => {
+        return (node) => {
             const row = this.constructRow(node, context) as any;
             for (const attr of attributes) {
                 const { name } = attr;
@@ -403,73 +408,78 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         };
     }
 
-    private async translateAttribute<T extends keyof ED, OP extends TreeStoreSelectOption>(entity: T, filter: Q_NumberValue | Q_StringValue | Q_BooleanValue | Object | ED[T]['Selection'] & {
-        entity: T;
-    }, attr: string, context: Cxt, option?: OP): Promise<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => Promise<boolean>> {
+    private translateAttribute<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(
+        entity: T,
+        filter: Q_NumberValue | Q_StringValue | Q_BooleanValue | Object | ED[T]['Selection'] & {
+            entity: T;
+        },
+        attr: string,
+        context: Cxt,
+        option?: OP): (node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean {
         // 如果是模糊查询且该属性为undefined，说明没取到，返回true
         function obscurePassLocal(row: any) {
             return obscurePass(row, attr, option);
         }
         if (typeof filter !== 'object') {
-            return async (node) => {
+            return (node) => {
                 const row = this.constructRow(node, context);
                 return row ? (row as any)[attr] === filter || obscurePassLocal(row) : false;
             };
         }
-        else if (this.storageSchema[entity].attributes[attr]?.type === 'object') {
+        else if (this.getSchema()[entity].attributes[attr]?.type === 'object') {
             // 如果查询的目标就是object，则转化成object的比较
-            return async (node) => {
+            return (node) => {
                 const row = this.constructRow(node, context);
                 return row ? JSON.stringify((row as any)[attr]) === JSON.stringify(filter) || obscurePassLocal(row) : false;
             };
         }
-        const fns: Array<(row: any, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => Promise<boolean>> = [];
+        const fns: Array<(row: any, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean> = [];
         for (const op in filter) {
             switch (op) {
                 case '$gt': {
-                    fns.push(async (row) => row && (row[attr] > (filter as any)[op]) || obscurePassLocal(row));
+                    fns.push((row) => row && (row[attr] > (filter as any)[op]) || obscurePassLocal(row));
                     break;
                 }
                 case '$lt': {
-                    fns.push(async (row) => row && (row[attr] < (filter as any)[op]) || obscurePassLocal(row));
+                    fns.push((row) => row && (row[attr] < (filter as any)[op]) || obscurePassLocal(row));
                     break;
                 }
                 case '$gte': {
-                    fns.push(async (row) => row && (row[attr] >= (filter as any)[op]) || obscurePassLocal(row));
+                    fns.push((row) => row && (row[attr] >= (filter as any)[op]) || obscurePassLocal(row));
                     break;
                 }
                 case '$lte': {
-                    fns.push(async (row) => row && (row[attr] <= (filter as any)[op]) || obscurePassLocal(row));
+                    fns.push((row) => row && (row[attr] <= (filter as any)[op]) || obscurePassLocal(row));
                     break;
                 }
                 case '$eq': {
-                    fns.push(async (row) => row && (row[attr] === (filter as any)[op]) || obscurePassLocal(row));
+                    fns.push((row) => row && (row[attr] === (filter as any)[op]) || obscurePassLocal(row));
                     break;
                 }
                 case '$ne': {
-                    fns.push(async (row) => row && (row[attr] !== (filter as any)[op]) || obscurePassLocal(row));
+                    fns.push((row) => row && (row[attr] !== (filter as any)[op]) || obscurePassLocal(row));
                     break;
                 }
                 case '$between': {
-                    fns.push(async (row) => {
+                    fns.push((row) => {
                         return row && (row[attr] >= (filter as any)[op][0] && row[attr] <= (filter as any)[op][1] || obscurePassLocal(row));
                     });
                     break;
                 }
                 case '$startsWith': {
-                    fns.push(async (row) => {
+                    fns.push((row) => {
                         return row && (row[attr]?.startsWith((filter as any)[op]) || obscurePassLocal(row));
                     });
                     break;
                 }
                 case '$endsWith': {
-                    fns.push(async (row) => {
+                    fns.push((row) => {
                         return row && (row[attr]?.$endsWith((filter as any)[op]) || obscurePassLocal(row));
                     });
                     break;
                 }
                 case '$includes': {
-                    fns.push(async (row) => {
+                    fns.push((row) => {
                         return row && (row[attr]?.includes((filter as any)[op]) || obscurePassLocal(row));
                     });
                     break;
@@ -477,7 +487,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                 case '$exists': {
                     const exists = (filter as any)[op];
                     assert(typeof exists === 'boolean');
-                    fns.push(async (row) => {
+                    fns.push((row) => {
                         if (exists) {
                             return ![null, undefined].includes(row[attr]) || obscurePassLocal(row);
                         }
@@ -491,17 +501,17 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                     const inData = (filter as any)[op];
                     assert(typeof inData === 'object');
                     if (inData instanceof Array) {
-                        fns.push(async (row) => inData.includes(row[attr]) || obscurePassLocal(row));
+                        fns.push((row) => inData.includes(row[attr]) || obscurePassLocal(row));
                     }
                     else {
                         // 如果是obscure，则返回的集合中有没有都不能否决“可能有”，所以可以直接返回true
                         if (option?.obscure) {
-                            fns.push(async () => true);
+                            fns.push(() => true);
                         }
                         else {
                             // 这里只有当子查询中的filter不包含引用外部的子查询时才可以提前计算，否则必须等到执行时再计算
                             try {
-                                const legalSets = (await this.selectAbjointRow(inData.entity, inData, context, option)).map(
+                                const legalSets = (this.selectAbjointRow(inData.entity, inData, context, option)).map(
                                     (ele) => {
                                         const { data } = inData;
                                         const key = Object.keys(data)[0];
@@ -510,15 +520,15 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                                 );
 
                                 fns.push(
-                                    async (row) => legalSets.includes(row[attr])
+                                    (row) => legalSets.includes(row[attr])
                                 );
                             }
                             catch (err) {
-                                if (err instanceof OakError && err.$$code === RowStore.$$CODES.expressionUnresolved[0]) {
+                                if (err instanceof OakExpressionUnresolvedException) {
                                     fns.push(
-                                        async (row, nodeDict) => {
+                                        (row, nodeDict) => {
                                             const option2 = Object.assign({}, option, { nodeDict });
-                                            const legalSets = (await this.selectAbjointRow(inData.entity, inData, context, option2)).map(
+                                            const legalSets = this.selectAbjointRow(inData.entity, inData, context, option2).map(
                                                 (ele) => {
                                                     const { data } = inData as DeduceSelection<ED[keyof ED]['Schema']>;
                                                     const key = Object.keys(data)[0];
@@ -541,13 +551,13 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                     const inData = (filter as any)[op];
                     assert(typeof inData === 'object');
                     if (inData instanceof Array) {
-                        fns.push(async (row) => !inData.includes(row[attr]) || obscurePassLocal(row));
+                        fns.push((row) => !inData.includes(row[attr]) || obscurePassLocal(row));
                     }
                     else {
                         // obscure对nin没有影响，如果返回的子查询结果中包含此行就一定是false，否则一定为true（obscure只考虑数据不完整，不考虑不准确），但若相应属性为undefined则任然可以认为true
                         // 这里只有当子查询中的filter不包含引用外部的子查询时才可以提前计算，否则必须等到执行时再计算
                         try {
-                            const legalSets = (await this.selectAbjointRow(inData.entity, inData, context, option)).map(
+                            const legalSets = this.selectAbjointRow(inData.entity, inData, context, option).map(
                                 (ele) => {
                                     const { data } = inData as DeduceSelection<ED[keyof ED]['Schema']>;
                                     const key = Object.keys(data)[0];
@@ -556,15 +566,15 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                             );
 
                             fns.push(
-                                async (row) => !legalSets.includes(row[attr]) || obscurePassLocal(row)
+                                (row) => !legalSets.includes(row[attr]) || obscurePassLocal(row)
                             );
                         }
                         catch (err) {
-                            if (err instanceof OakError && err.$$code === RowStore.$$CODES.expressionUnresolved[0]) {
+                            if (err instanceof OakExpressionUnresolvedException) {
                                 fns.push(
-                                    async (row, nodeDict) => {
+                                    (row, nodeDict) => {
                                         const option2 = Object.assign({}, option, { nodeDict });
-                                        const legalSets = (await this.selectAbjointRow(inData.entity, inData, context, option2)).map(
+                                        const legalSets = this.selectAbjointRow(inData.entity, inData, context, option2).map(
                                             (ele) => {
                                                 const { data } = inData as DeduceSelection<ED[keyof ED]['Schema']>;
                                                 const key = Object.keys(data)[0];
@@ -586,13 +596,13 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                     assert(false, `目前不支持的算子${op}`);
             }
         }
-        return async (node, nodeDict, exprResolveFns) => {
+        return (node, nodeDict, exprResolveFns) => {
             const row = this.constructRow(node, context);
             if (!row) {
                 return false;
             }
             for (const fn of fns) {
-                if (await fn(row, nodeDict, exprResolveFns) === false) {
+                if (fn(row, nodeDict, exprResolveFns) === false) {
                     return false;
                 }
             }
@@ -600,12 +610,12 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         }
     }
 
-    private async translateFilter<T extends keyof ED, OP extends TreeStoreSelectOption>(
+    private translateFilter<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(
         entity: T,
         filter: DeduceFilter<ED[T]['Schema']>,
         context: Cxt,
-        option?: OP): Promise<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => Promise<boolean>> {
-        const fns: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => Promise<boolean>> = [];
+        option?: OP): (node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean {
+        const fns: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean> = [];
 
         let nodeId: NodeId;
         for (const attr in filter) {
@@ -620,12 +630,12 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
             else if (attr.toLowerCase().startsWith(EXPRESSION_PREFIX)) {
                 const fn = this.translateExpression(entity, (filter as any)[attr], context, option);
                 fns.push(
-                    async (node, nodeDict, exprResolveFns) => {
+                    (node, nodeDict, exprResolveFns) => {
                         const row = this.constructRow(node, context);
                         if (!row) {
                             return false;
                         }
-                        const result = await fn(row, nodeDict);
+                        const result = fn(row, nodeDict);
                         if (typeof result === 'function') {
                             exprResolveFns.push(result);
                         }
@@ -638,17 +648,17 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
             }
             else {
                 // 属性级过滤
-                const relation = judgeRelation(this.storageSchema, entity, attr);
+                const relation = judgeRelation(this.getSchema(), entity, attr);
 
                 if (relation === 1) {
                     // 行本身的属性
-                    fns.push(await this.translateAttribute(entity, (filter as any)[attr], attr, context, option));
+                    fns.push(this.translateAttribute(entity, (filter as any)[attr], attr, context, option));
                 }
                 else if (relation === 2) {
                     // 基于entity/entityId的指针
-                    const fn = await this.translateFilter(attr, (filter as any)[attr], context, option);
+                    const fn = this.translateFilter(attr, (filter as any)[attr], context, option);
                     fns.push(
-                        async (node, nodeDict, exprResolveFns) => {
+                        (node, nodeDict, exprResolveFns) => {
                             const row = this.constructRow(node, context);
                             if (obscurePass(row, 'entity', option) || obscurePass(row, 'entityId', option)) {
                                 return true;
@@ -670,9 +680,9 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                 else {
                     assert(typeof relation === 'string');
                     // 只能是基于普通属性的外键
-                    const fn = await this.translateFilter(relation, (filter as any)[attr], context, option);
+                    const fn = this.translateFilter(relation, (filter as any)[attr], context, option);
                     fns.push(
-                        async (node, nodeDict, exprResolveFns) => {
+                        (node, nodeDict, exprResolveFns) => {
                             const row = this.constructRow(node, context);
                             if (obscurePass(row, `${attr}Id`, option)) {
                                 return true;
@@ -694,9 +704,9 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
             }
         }
 
-        return async (node, nodeDict, exprResolveFns) => {
+        return (node, nodeDict, exprResolveFns) => {
             if (nodeId) {
-                assert(!nodeDict.hasOwnProperty(nodeId), new OakError(RowStore.$$LEVEL, RowStore.$$CODES.nodeIdRepeated, `Filter中的nodeId「${nodeId}」出现了多次`));
+                assert(!nodeDict.hasOwnProperty(nodeId), `Filter中的nodeId「${nodeId}」出现了多次`);
                 Object.assign(nodeDict, {
                     [nodeId]: this.constructRow(node, context),
                 });
@@ -706,7 +716,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                 return false;
             }
             for (const fn of fns) {
-                if (!await fn(node, nodeDict, exprResolveFns)) {
+                if (!fn(node, nodeDict, exprResolveFns)) {
                     return false;
                 }
             }
@@ -714,7 +724,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         };
     }
 
-    private translateSorter<T extends keyof ED>(
+    private translateSorter<T extends keyof ED, Cxt extends Context>(
         entity: T,
         sorter: DeduceSorter<ED[T]['Schema']>,
         context: Cxt):
@@ -729,7 +739,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
             assert(Object.keys(sortAttr).length === 1);
             const attr = Object.keys(sortAttr)[0];
 
-            const relation = judgeRelation(this.storageSchema, entity2, attr);
+            const relation = judgeRelation(this.getSchema(), entity2, attr);
             if (relation === 1 || relation === 0) {
                 const getAttrOrExprValue = (r: any) => {
                     if (sortAttr[attr] === 1) {
@@ -812,11 +822,11 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         }
     }
 
-    protected async selectAbjointRow<T extends keyof ED, S extends ED[T]['Selection'], OP extends TreeStoreSelectOption>(
+    protected selectAbjointRow<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(
         entity: T,
-        selection: S,
+        selection: ED[T]['Selection'],
         context: Cxt,
-        option?: OP): Promise<SelectRowShape<ED[T]['Schema'], S['data']>[]> {
+        option?: OP): Partial<ED[T]['Schema']>[] {
         const { filter } = selection;
         const nodeDict = option?.nodeDict;
 
@@ -828,22 +838,20 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
             if (n.$txnId && n.$txnId !== context.getCurrentTxnId() && n.$current === null) {
                 continue;
             }
-            while (n.$txnId && n.$txnId !== context.getCurrentTxnId()) {
-                await this.waitOnTxn(n.$txnId, context);
-            }
+            assert(!n.$txnId || n.$txnId === context.getCurrentTxnId());
             const nodeDict2: NodeDict = {};
             if (nodeDict) {
                 Object.assign(nodeDict2, nodeDict);
             }
             const exprResolveFns: Array<ExprResolveFn> = [];
-            if (!filterFn || await (await filterFn)(n, nodeDict2, exprResolveFns)) {
+            if (!filterFn || filterFn(n, nodeDict2, exprResolveFns)) {
                 // 如果有延时处理的expression，在这里加以判断，此时所有在filter中的node应该都已经加以遍历了
                 let exprResult = true;
                 if (exprResolveFns.length > 0) {
                     for (const fn of exprResolveFns) {
                         const result = fn(nodeDict2);
                         if (typeof result === 'function') {
-                            throw new OakError(RowStore.$$LEVEL, RowStore.$$CODES.expressionUnresolved, `表达式计算失败，请检查Filter中的结点编号和引用是否一致`);
+                            throw new OakExpressionUnresolvedException();
                         }
                         if (!!!result) {
                             exprResult = false;
@@ -860,15 +868,15 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
             (node) => this.constructRow(node, context) as EntityShape
         );
 
-        const rows2 = await this.formResult(entity, rows, selection, context);
+        const rows2 = this.formResult(entity, rows, selection, context);
         return rows2;
     }
 
-    protected async updateAbjointRow<T extends keyof ED, OP extends TreeStoreOperateOption>(
+    protected updateAbjointRow<T extends keyof ED, OP extends TreeStoreOperateOption, Cxt extends Context>(
         entity: T,
         operation: DeduceCreateSingleOperation<ED[T]['Schema']> | DeduceUpdateOperation<ED[T]['Schema']> | DeduceRemoveOperation<ED[T]['Schema']>,
         context: Cxt,
-        option?: OP): Promise<number> {
+        option?: OP): number {
         const { data, action, id: operId } = operation;
 
         switch (action) {
@@ -880,10 +888,6 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                 /* if (row) {
                     throw new OakError(RowStore.$$LEVEL, RowStore.$$CODES.primaryKeyConfilict);
                 } */
-                while (this.store[entity] && (this.store[entity]!)[id] && (this.store[entity]!)[id].$txnId) {
-                    assert((this.store[entity]!)[id].$txnId !== context.getCurrentTxnId());
-                    await this.waitOnTxn((this.store[entity]!)[id].$txnId!, context);
-                }
                 if (this.store[entity] && (this.store[entity]!)[id]) {
                     const node = this.store[entity] && (this.store[entity]!)[id as string];
                     throw new OakCongruentRowExists(entity as string, this.constructRow(node, context)!);
@@ -916,16 +920,13 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                     indexFrom: operation.indexFrom,
                     count: operation.count,
                 };
-                const rows = await this.selectAbjointRow(entity, selection, context);
+                const rows = this.selectAbjointRow(entity, selection, context);
 
                 const ids = rows.map(ele => ele.id);
                 for (const id of ids) {
                     let alreadyDirtyNode = false;
                     const node = (this.store[entity]!)[id as string];
-                    assert(node);
-                    while (node.$txnId && node.$txnId !== context.getCurrentTxnId()) {
-                        await this.waitOnTxn(node.$txnId, context);
-                    }
+                    assert(node && (!node.$txnId || node.$txnId == context.getCurrentTxnId()));
                     if (!node.$txnId) {
                         node.$txnId = context.getCurrentTxnId()!;
                     }
@@ -955,19 +956,31 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         }
     }
 
-    private async doOperation<T extends keyof ED, OP extends TreeStoreOperateOption>(entity: T, operation: ED[T]['Operation'], context: Cxt, option: OP): Promise<OperationResult<ED>> {
-        const { action } = operation;
-        if (action === 'select') {
-            throw new Error('现在不支持使用select operation');
-        }
-        else {
-            return await this.cascadeUpdate(entity, operation as any, context, option);
-        }
+    protected async selectAbjointRowAsync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(
+        entity: T,
+        selection: ED[T]['Selection'],
+        context: Cxt,
+        option?: OP) {
+        return this.selectAbjointRow(entity, selection, context, option);
     }
 
-    async operate<T extends keyof ED, OP extends TreeStoreOperateOption>(entity: T, operation: ED[T]['Operation'], context: Cxt, option: OP): Promise<OperationResult<ED>> {
+    protected async updateAbjointRowAsync<T extends keyof ED, OP extends TreeStoreOperateOption, Cxt extends Context>(
+        entity: T,
+        operation: DeduceCreateSingleOperation<ED[T]['Schema']> | DeduceUpdateOperation<ED[T]['Schema']> | DeduceRemoveOperation<ED[T]['Schema']>,
+        context: Cxt,
+        option?: OP) {
+        return this.updateAbjointRow(entity, operation, context, option);
+    }
+
+
+    operateSync<T extends keyof ED, OP extends TreeStoreOperateOption, Cxt extends SyncContext<ED>>(entity: T, operation: ED[T]['Operation'], context: Cxt, option: OP): OperationResult<ED> {
         assert(context.getCurrentTxnId());
-        return await this.doOperation(entity, operation, context, option);
+        return this.cascadeUpdate(entity, operation, context, option);
+    }
+
+    async operateAsync<T extends keyof ED, OP extends TreeStoreOperateOption, Cxt extends AsyncContext<ED>>(entity: T, operation: ED[T]['Operation'], context: Cxt, option: OP) {
+        assert(context.getCurrentTxnId());
+        return this.cascadeUpdateAsync(entity, operation, context, option);
     }
 
     /**
@@ -978,10 +991,10 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
      * @param nodeDict 
      * @param context 
      */
-    protected async formExprInResult<T extends keyof ED>(
+    protected formExprInResult<T extends keyof ED, Cxt extends Context>(
         entity: T,
         projection: ED[T]['Selection']['data'],
-        data: ED[T]['Schema'],
+        data: Partial<ED[T]['Schema']>,
         nodeDict: NodeDict,
         context: Cxt) {
 
@@ -991,7 +1004,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         for (const attr in projection) {
             if (attr.startsWith(EXPRESSION_PREFIX)) {
                 const ExprNodeTranslator = this.translateExpression(entity, projection[attr], context, {});
-                const exprResult = await ExprNodeTranslator(data, nodeDict);
+                const exprResult = ExprNodeTranslator(data, nodeDict);
                 if (typeof exprResult === 'function') {
                     Object.assign(laterExprDict, {
                         [attr]: exprResult,
@@ -1005,7 +1018,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
             }
             else if (attr === '#id') {
                 const nodeId = data[attr] as NodeId;
-                assert(!nodeDict.hasOwnProperty(nodeId), new OakError(RowStore.$$LEVEL, RowStore.$$CODES.nodeIdRepeated, `Filter中的nodeId「${nodeId}」出现了多次`));
+                assert(!nodeDict.hasOwnProperty(nodeId), `Filter中的nodeId「${nodeId}」出现了多次`);
                 Object.assign(nodeDict, {
                     [nodeId]: data,
                 });
@@ -1018,20 +1031,20 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
             }
             else if (rel === 2) {
                 if (data[attr]) {
-                    await this.formExprInResult(attr, projection[attr], data[attr], nodeDict, context);
+                    this.formExprInResult(attr, projection[attr], data[attr]!, nodeDict, context);
                 }
             }
             else if (typeof rel === 'string') {
                 if (data[attr]) {
                     const result2 = {};
-                    await this.formExprInResult(rel, projection[attr], data[attr], nodeDict, context);
+                    this.formExprInResult(rel, projection[attr], data[attr]!, nodeDict, context);
                 }
             }
             else if (rel instanceof Array) {
                 if (data[attr] && (data[attr] as any) instanceof Array) {
-                    await Promise.all(data[attr].map(
+                    data[attr].map(
                         (ele: any) => this.formExprInResult(rel[0], projection[attr].data, ele, nodeDict, context)
-                    ));
+                    )
                 }
             }
         }
@@ -1039,17 +1052,17 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         for (const attr in laterExprDict) {
             const exprResult = laterExprDict[attr as ExpressionKey]!(nodeDict);
             // projection是不应出现计算不出来的情况
-            assert(typeof exprResult !== 'function', new OakError(RowStore.$$LEVEL, RowStore.$$CODES.expressionUnresolved, 'data中的expr无法计算，请检查命名与引用的一致性'));
+            assert(typeof exprResult !== 'function', 'data中的expr无法计算，请检查命名与引用的一致性');
             Object.assign(data, {
                 [attr]: exprResult,
             });
         }
     }
 
-    private async formResult<T extends keyof ED, S extends ED[T]['Selection']>(
+    private formResult<T extends keyof ED, Cxt extends Context>(
         entity: T,
         rows: Array<Partial<ED[T]['Schema']>>,
-        selection: S,
+        selection: ED[T]['Selection'],
         context: Cxt) {
         const { data, sorter, indexFrom, count } = selection;
 
@@ -1076,7 +1089,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                             [attr]: attrName,
                         });
                     }
-                    const rel = judgeRelation(this.storageSchema, entity2, attr);
+                    const rel = judgeRelation(this.getSchema(), entity2, attr);
                     if (rel === 2 || typeof rel === 'string') {
                         if (!proj[attr]) {
                             Object.assign(proj, {
@@ -1103,7 +1116,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         }
 
         // 先计算projection，formResult只处理abjoint的行，不需要考虑expression和一对多多对一关系
-        const rows2: Array<SelectRowShape<ED[T]['Schema'], S['data']>> = [];
+        const rows2: Array<Partial<ED[T]['Schema']>> = [];
         const incompletedRowIds: string[] = [];
         const { data: projection } = selection;
         for (const row of rows) {
@@ -1122,7 +1135,12 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                     }
                 }
             }
-            rows2.push(result as SelectRowShape<ED[T]['Schema'], S['data']>);
+            if (row.$$deleteAt$$) {
+                Object.assign(result, {
+                    [DeleteAtAttribute]: row.$$deleteAt$$,
+                })
+            }
+            rows2.push(result as Partial<ED[T]['Schema']>);
         }
         if (incompletedRowIds.length > 0) {
             // 如果有缺失属性的行，则报OakRowUnexistedException错误
@@ -1154,37 +1172,65 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         }
     }
 
-    async select<T extends keyof ED, S extends ED[T]['Selection'], OP extends TreeStoreSelectOption>(
+    selectSync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends SyncContext<ED>>(
         entity: T,
-        selection: S,
+        selection: ED[T]['Selection'],
         context: Cxt,
-        option: OP): Promise<SelectionResult<ED[T]['Schema'], S['data']>> {
+        option: OP): Partial<ED[T]['Schema']>[] {
         assert(context.getCurrentTxnId());
-        const result = await this.cascadeSelect(entity, selection, context, option);
+        const result = this.cascadeSelect(entity, selection, context, option);
         // 在这里再计算所有的表达式
-        await this.formExprInResult(entity, selection.data, result as any, {}, context);
-        return {
-            result,
-            // stats,
-        };
+        result.forEach(
+            (ele) => this.formExprInResult(entity, selection.data, ele, {}, context)
+        );
+        return result;
     }
 
-    async count<T extends keyof ED, OP extends TreeStoreSelectOption>(
+    async selectAsync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends AsyncContext<ED>>(
+        entity: T,
+        selection: ED[T]['Selection'],
+        context: Cxt,
+        option: OP) {
+        assert(context.getCurrentTxnId());
+        const result = await this.cascadeSelectAsync(entity, selection, context, option);
+        // 在这里再计算所有的表达式
+        result.forEach(
+            (ele) => this.formExprInResult(entity, selection.data, ele, {}, context)
+        );
+        return result;
+    }
+
+    countSync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends SyncContext<ED>>(
         entity: T,
         selection: Pick<ED[T]['Selection'], 'filter' | 'count'>,
-        context: Cxt, option: OP): Promise<number> {
-        const { result } = await this.select(entity, Object.assign({}, selection, {
+        context: Cxt, option: OP): number {
+        const result = this.selectSync(entity, Object.assign({}, selection, {
             data: {
                 id: 1,
             }
-        }) as any, context, Object.assign({}, option, {
+        }), context, Object.assign({}, option, {
             dontCollect: true,
         }));
 
         return typeof selection.count === 'number' ? Math.min(result.length, selection.count) : result.length;
     }
 
-    private addToTxnNode(node: RowNode, context: Cxt, action: 'create' | 'update' | 'remove') {
+    async countAsync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends AsyncContext<ED>>(
+        entity: T,
+        selection: Pick<ED[T]['Selection'], 'filter' | 'count'>,
+        context: Cxt, option: OP) {
+        const result = await this.selectAsync(entity, Object.assign({}, selection, {
+            data: {
+                id: 1,
+            }
+        }), context, Object.assign({}, option, {
+            dontCollect: true,
+        }));
+
+        return typeof selection.count === 'number' ? Math.min(result.length, selection.count) : result.length;
+    }
+
+    private addToTxnNode<Cxt extends Context>(node: RowNode, context: Cxt, action: 'create' | 'update' | 'remove') {
         const txnNode = this.activeTxnDict[context.getCurrentTxnId()!];
         assert(txnNode);
         if (!node.$nextNode) {
@@ -1204,7 +1250,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         return this.stat;
     }
 
-    async begin() {
+    beginSync() {
         const uuid = `${Math.random()}`;
         assert(!this.activeTxnDict.hasOwnProperty(uuid));
         Object.assign(this.activeTxnDict, {
@@ -1218,7 +1264,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         return uuid;
     }
 
-    async commit(uuid: string) {
+    commitSync(uuid: string) {
         assert(this.activeTxnDict.hasOwnProperty(uuid), uuid);
         let node = this.activeTxnDict[uuid].nodeHeader;
         while (node) {
@@ -1259,7 +1305,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         unset(this.activeTxnDict, uuid);
     }
 
-    async rollback(uuid: string) {
+    rollbackSync(uuid: string) {
         assert(this.activeTxnDict.hasOwnProperty(uuid));
         let node = this.activeTxnDict[uuid].nodeHeader;
         while (node) {
@@ -1292,8 +1338,20 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
         unset(this.activeTxnDict, uuid);
     }
 
+    async beginAsync() {
+        return this.beginSync();
+    }
+
+    async commitAsync(uuid: string) {
+        return this.commitSync(uuid);
+    }
+
+    async rollbackAsync(uuid: string) {
+        return this.rollbackSync(uuid);
+    }
+
     // 将输入的OpRecord同步到数据中
-    async sync<OP extends TreeStoreOperateOption>(opRecords: Array<OpRecord<ED>>, context: Cxt, option?: OP) {
+    sync<OP extends TreeStoreOperateOption, Cxt extends SyncContext<ED>>(opRecords: Array<OpRecord<ED>>, context: Cxt, option?: OP) {
         const option2 = Object.assign({}, option, {
             dontCollect: true,
             dontCreateOper: true,
@@ -1305,7 +1363,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                     if (d instanceof Array) {
                         for (const dd of d) {
                             if (this.store[e] && this.store[e]![dd.id]) {
-                                await this.updateAbjointRow(e, {
+                                this.updateAbjointRow(e, {
                                     id: 'dummy',
                                     action: 'update',
                                     data: dd,
@@ -1315,7 +1373,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                                 }, context, option2)
                             }
                             else {
-                                await this.updateAbjointRow(e, {
+                                this.updateAbjointRow(e, {
                                     id: 'dummy',
                                     action: 'create',
                                     data: dd,
@@ -1325,7 +1383,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                     }
                     else {
                         if (this.store[e] && this.store[e]![d.id]) {
-                            await this.updateAbjointRow(e, {
+                            this.updateAbjointRow(e, {
                                 id: 'dummy',
                                 action: 'update',
                                 data: d,
@@ -1335,7 +1393,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                             }, context, option2);
                         }
                         else {
-                            await this.updateAbjointRow(e, {
+                            this.updateAbjointRow(e, {
                                 id: 'dummy',
                                 action: 'create',
                                 data: d,
@@ -1346,7 +1404,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                 }
                 case 'u': {
                     const { e, d, f } = record as UpdateOpResult<ED, keyof ED>;
-                    await this.updateAbjointRow(e, {
+                    this.updateAbjointRow(e, {
                         id: 'dummy',
                         action: 'update',
                         data: d,
@@ -1356,7 +1414,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                 }
                 case 'r': {
                     const { e, f } = record as RemoveOpResult<ED, keyof ED>;
-                    await this.updateAbjointRow(e, {
+                    this.updateAbjointRow(e, {
                         id: 'dummy',
                         action: 'remove',
                         data: {},
@@ -1369,7 +1427,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                     for (const entity in d) {
                         for (const id in d[entity]) {
                             if (this.store[entity] && this.store[entity]![id]) {
-                                await this.updateAbjointRow(entity, {
+                                this.updateAbjointRow(entity, {
                                     id: 'dummy',
                                     action: 'update',
                                     data: d[entity]![id],
@@ -1379,7 +1437,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict, Cxt exten
                                 }, context, option2);
                             }
                             else {
-                                await this.updateAbjointRow(entity, {
+                                this.updateAbjointRow(entity, {
                                     id: 'dummy',
                                     action: 'create',
                                     data: d[entity]![id],
