@@ -400,7 +400,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             const row = this.constructRow(node, context) as any;
             for (const attr of attributes) {
                 const { name } = attr;
-                if (row && row[name] && (typeof row[name] === 'string' && row[name].contains($search) || obscurePass(row, name as string, option))) {
+                if (row && row[name] && (typeof row[name] === 'string' && row[name].includes($search) || obscurePass(row, name as string, option))) {
                     return true;
                 }
             }
