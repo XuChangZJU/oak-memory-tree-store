@@ -1,314 +1,368 @@
 import { v4 } from 'uuid';
 import { describe, it } from 'mocha';
-import TreeStore from '../src/store';
-import { EntityDict } from './app-domain/EntityDict';
-import { storageSchema } from './app-domain/Storage';
+import { EntityDict, storageSchema } from 'oak-domain/lib/base-app-domain';
+import { generateNewId } from 'oak-domain/lib/utils/uuid';
 import assert from 'assert';
-import { CreateSingleOperation, CreateOperationData } from './app-domain/System/Schema';
-import { UniversalContext } from 'oak-domain/lib/store/UniversalContext';
+import TreeStore from '../src/store';
+import { FrontendRuntimeContext, FrontendStore } from './Context';
 
 describe('基础测试', function () {
     this.timeout(1000000);
 
-    it('[1.0]简单查询', async () => {
-        const store = new TreeStore<EntityDict, UniversalContext<EntityDict>>(storageSchema);
-        const context = new UniversalContext(store);
-        const created = await store.operate('application', {
+    it('[1.0]简单查询', () => {
+        const store = new FrontendStore(storageSchema);
+        const context = new FrontendRuntimeContext(store);
+        context.begin();
+        const created = store.operate('modiEntity', {
+            id: generateNewId(),
             action: 'create',
             data: [{
-                id: 'aaa',
-                name: 'test',
-                description: 'ttttt',
-                type: 'web',
-                config: {
-                    type: 'web',
-                    domain: 'http://www.tt.com',
-                },
-                system: {
+                id: generateNewId(),
+                entity: 'user',
+                entityId: 'user-id-1',
+                modi: {
                     action: 'create',
                     data: {
-                        id: 'bbb',
-                        name: 'systest',
-                        description: 'aaaaa',
-                        config: {},
-                    } as CreateSingleOperation['data']
-                },
+                        id: generateNewId(),
+                        targetEntity: 'ddd',
+                        entity: 'user',
+                        entityId: 'user-id-1',
+                        action: 'create',
+                        data: {},
+                    }
+                }
             }, {
-                id: 'aaa2',
-                name: 'test2',
-                description: 'ttttt2',
-                type: 'web',
-                config: {
-                    type: 'web',
-                    domain: 'http://www.tt.com',
-                },
-                system: {
+                id: generateNewId(),
+                entity: 'user',
+                entityId: 'user-id-1',
+                modi: {
                     action: 'create',
                     data: {
-                        id: 'ccc',
-                        name: 'systest2',
-                        description: 'aaaaa2',
-                        config: {},
+                        id: generateNewId(),
+                        targetEntity: 'ddd',
+                        entity: 'user',
+                        entityId: 'user-id-1',
+                        action: 'update',
+                        data: {},
                     }
                 }
             }]
-        }, context);
+        }, context, {});
 
-        console.log(created);
+        // console.log(created);
 
-        const applications = await store.select('application', {
+        const modiEntities = store.select('modiEntity', {
             data: {
                 id: 1,
-                name: 1,
-                systemId: 1,
-                system: {
+                entity: 1,
+                entityId: 1,
+                modi: {
                     id: 1,
-                    name: 1,
+                    targetEntity: 1,
+                    entity: 1,
+                    entityId: 1,
+                    action: 1,
+                    data: 1,
                 }
             },
             sorter: [
                 {
                     $attr: {
-                        system: {
-                            name: 1,
+                        modi: {
+                            id: 1,
                         }
                     },
                     $direction: 'asc',
                 }
             ]
-        }, context);
-        console.log(applications);
+        }, context, {});
+        // console.log(modiEntities);
+
+        context.commit();
     });
 
-    it('[1.1]子查询', async () => {
-        const store = new TreeStore<EntityDict, UniversalContext<EntityDict>>(storageSchema);
-        const context = new UniversalContext(store);
 
-        await store.operate('user', {
+    it('[1.1]子查询', () => {
+        const store = new FrontendStore(storageSchema);
+        const context = new FrontendRuntimeContext(store);
+        context.begin();
+
+        const created = store.operate('modiEntity', {
+            id: generateNewId(),
             action: 'create',
-            data: {
-                id: v4(),
-                name: 'xc',
-                nickname: 'xc',
-            }
-        }, context);
+            data: [{
+                id: generateNewId(),
+                entity: 'user',
+                entityId: 'user-id-1',
+                modi: {
+                    action: 'create',
+                    data: {
+                        id: generateNewId(),
+                        targetEntity: 'ddd',
+                        entity: 'user',
+                        entityId: 'user-id-1',
+                        action: 'create',
+                        data: {},
+                    }
+                }
+            }, {
+                id: generateNewId(),
+                entity: 'user',
+                entityId: 'user-id-1',
+                modi: {
+                    action: 'create',
+                    data: {
+                        id: generateNewId(),
+                        targetEntity: 'ddd',
+                        entity: 'user',
+                        entityId: 'user-id-1',
+                        action: 'update',
+                        data: {},
+                    }
+                }
+            }]
+        }, context, {});
 
         /**
          * 这个子查询没有跨结点的表达式，所以应该可以提前计算子查询的值
          * 这个可以跟一下store.ts中translateAttribute函数里$in的分支代码
          * by Xc
          */
-        const rows = await store.select('user', {
+        const rows = store.select('modi', {
             data: {
                 id: 1,
-                name: 1,
-                nickname: 1,
+                targetEntity: 1,
+                entity: 1,
             },
             filter: {
                 id: {
                     $in: {
-                        entity: 'token',
+                        entity: 'modiEntity',
                         data: {
-                            userId: 1,
+                            modiId: 1,
                         },
                         filter: {
-                            entity: 'mobile',
+                            entity: 'user',
+                            entityId: 'user-id-1',
                         }
                     },
                 }
             },
-        }, context);
+        }, context, {});
         // console.log(rows);
-        assert(rows.result.length === 0);
+        assert(rows.length === 2);
+        context.commit();
     });
 
     it('[1.2]行内属性上的表达式', async () => {
-        const store = new TreeStore<EntityDict, UniversalContext<EntityDict>>(storageSchema);
-        const context = new UniversalContext(store);
+        const store = new FrontendStore(storageSchema);
+        const context = new FrontendRuntimeContext(store);
+        context.begin();
 
-        await store.operate('user', {
+        const created = store.operate('modiEntity', {
+            id: generateNewId(),
             action: 'create',
-            data: {
-                id: v4(),
-                name: 'xc',
-                nickname: 'xc',
-            }
-        }, context);
+            data: [{
+                id: generateNewId(),
+                entity: 'user-id-1',
+                entityId: 'user-id-1',
+                modi: {
+                    action: 'create',
+                    data: {
+                        id: generateNewId(),
+                        targetEntity: 'ddd',
+                        entity: 'user',
+                        entityId: 'user-id-1',
+                        action: 'create',
+                        data: {},
+                    }
+                }
+            }, {
+                id: generateNewId(),
+                entity: 'user',
+                entityId: 'user-id-1',
+                modi: {
+                    action: 'create',
+                    data: {
+                        id: generateNewId(),
+                        targetEntity: 'ddd',
+                        entity: 'user',
+                        entityId: 'user-id-1',
+                        action: 'update',
+                        data: {},
+                    }
+                }
+            }]
+        }, context, {});
 
-        const users = await store.select('user', {
+        const modiEntities = store.select('modiEntity', {
             data: {
                 id: 1,
-                name: 1,
-                nickname: 1,
+                entity: 1,
+                entityId: 1,
             },
             filter: {
                 // '#id': 'node-123',
                 $expr: {
                     $ne: [{
-                        '#attr': 'name',
+                        '#attr': 'entity',
                     }, {
-                        "#attr": 'nickname',
+                        "#attr": 'entityId',
                     }]
                 }
             },
-        }, context);
+        }, context, {});
 
-        console.log(users);
+        //  console.log(modiEntities);
+        assert(modiEntities.length === 1);
+        context.commit();
     });
 
     it('[1.3]跨filter结点的表达式', async () => {
-        const store = new TreeStore<EntityDict, UniversalContext<EntityDict>>(storageSchema);
-        const context = new UniversalContext(store);
+        const store = new FrontendStore(storageSchema);
+        const context = new FrontendRuntimeContext(store);
+        context.begin();
 
-        await store.operate('application', {
+        const created = store.operate('modiEntity', {
+            id: generateNewId(),
             action: 'create',
             data: [{
-                id: 'aaa',
-                name: 'test',
-                description: 'ttttt',
-                type: 'web',
-                config: {
-                    type: 'web',
-                    domain: 'http://www.tt.com',
-                },
-                system: {
+                id: generateNewId(),
+                entity: 'user',
+                entityId: 'user-id-1',
+                modi: {
                     action: 'create',
                     data: {
-                        id: 'bbb',
-                        name: 'systest',
-                        description: 'aaaaa',
-                        config: {},
+                        id: generateNewId(),
+                        targetEntity: 'ddd',
+                        entity: 'user',
+                        entityId: 'user-id-1',
+                        action: 'create',
+                        data: {},
                     }
                 }
             }, {
-                id: 'aaa2',
-                name: 'test2',
-                description: 'ttttt2',
-                type: 'web',
-                config: {
-                    type: 'web',
-                    domain: 'http://www.tt.com',
-                },
-                system: {
+                id: generateNewId(),
+                entity: 'user3',
+                entityId: 'user3-id-1',
+                modi: {
                     action: 'create',
                     data: {
-                        id: 'ccc',
-                        name: 'test2',
-                        description: 'aaaaa2',
-                        config: {},
+                        id: generateNewId(),
+                        targetEntity: 'ddd',
+                        entity: 'user2',
+                        entityId: 'user2-id-1',
+                        action: 'update',
+                        data: {},
                     }
                 }
             }]
-        }, context);
+        }, context, {});
 
-        const applications = await store.select('application', {
+
+        const applications = store.select('modiEntity', {
             data: {
                 id: 1,
-                name: 1,
-                systemId: 1,
-                system: {
-                    id: 1,
-                    name: 1,
-                }
+                entity: 1,
+                entityId: 1,
             },
             filter: {
                 $expr: {
                     $startsWith: [
                         {
-                            "#refAttr": 'name',
+                            "#refAttr": 'entityId',
                             "#refId": 'node-1',
                         },
                         {
-                            "#attr": 'name',
+                            "#attr": 'entity',
                         }
                     ]
                 },
-                system: {
+                modi: {
                     "#id": 'node-1',
                 }
             },
             sorter: [
                 {
                     $attr: {
-                        system: {
-                            name: 1,
+                        modi: {
+                            entity: 1,
                         }
                     },
                     $direction: 'asc',
                 }
             ]
-        }, context);
-        console.log(applications);
+        }, context, {});
+        // console.log(applications);
+        assert(applications.length === 1);
+
+        context.commit();
     });
 
 
-    it('[1.4]跨filter子查询的表达式', async () => {
-        const store = new TreeStore<EntityDict, UniversalContext<EntityDict>>(storageSchema);
-        const context = new UniversalContext(store);
+    it('[1.4]跨filter子查询的表达式', () => {
+        const store = new FrontendStore(storageSchema);
+        const context = new FrontendRuntimeContext(store);
+        context.begin();
 
-        await store.operate('application', {
+        const created = store.operate('modiEntity', {
+            id: generateNewId(),
             action: 'create',
             data: [{
-                id: 'aaa',
-                name: 'test',
-                description: 'ttttt',
-                type: 'web',
-                config: {
-                    type: 'web',
-                    domain: 'http://www.tt.com',
-                },
-                system: {
+                id: generateNewId(),
+                entity: 'user',
+                entityId: 'user-id-1',
+                modi: {
                     action: 'create',
                     data: {
-                        id: 'bbb',
-                        name: 'systest',
-                        description: 'aaaaa',
-                        config: {},
+                        id: generateNewId(),
+                        targetEntity: 'ddd',
+                        entity: 'user',
+                        entityId: 'user-id-1',
+                        action: 'create',
+                        data: {},
                     }
                 }
             }, {
-                id: 'aaa2',
-                name: 'test2',
-                description: 'ttttt2',
-                type: 'web',
-                config: {
-                    type: 'web',
-                    domain: 'http://www.tt.com',
-                },
-                system: {
+                id: generateNewId(),
+                entity: 'user3',
+                entityId: 'user3-id-1',
+                modi: {
                     action: 'create',
                     data: {
-                        id: 'ccc',
-                        name: 'test2',
-                        description: 'aaaaa2',
-                        config: {},
+                        id: generateNewId(),
+                        targetEntity: 'ddd',
+                        entity: 'user2',
+                        entityId: 'user2-id-1',
+                        action: 'update',
+                        data: {},
                     }
                 }
             }]
-        }, context);
+        }, context, {});
 
-        let systems = await store.select('system', {
+        let modies = store.select('modi', {
             data: {
                 id: 1,
-                name: 1,
+                targetEntity: 1,
             },
             filter: {
                 "#id": 'node-1',
                 id: {
                     $nin: {
-                        entity: 'application',
+                        entity: 'modiEntity',
                         data: {
-                            systemId: 1,
+                            modiId: 1,
                         },
                         filter: {
                             $expr: {
                                 $eq: [
                                     {
-                                        "#attr": 'name',
+                                        "#attr": 'entity',
                                     },
                                     {
                                         '#refId': 'node-1',
-                                        "#refAttr": 'name',
+                                        "#refAttr": 'entity',
                                     }
                                 ]
                             },
@@ -320,220 +374,167 @@ describe('基础测试', function () {
             sorter: [
                 {
                     $attr: {
-                        name: 1,
+                        entity: 1,
                     },
                     $direction: 'asc',
                 }
             ]
-        }, context);
-        assert(systems.result.length === 1 && systems.result[0].id === 'bbb');
-        systems = await store.select('system', {
-            data: {
-                id: 1,
-                name: 1,
-            },
-            filter: {
-                "#id": 'node-1',
-                id: {
-                    $in: {
-                        entity: 'application',
-                        data: {
-                            systemId: 1,
-                        },
-                        filter: {
-                            $expr: {
-                                $eq: [
-                                    {
-                                        "#attr": 'name',
-                                    },
-                                    {
-                                        '#refId': 'node-1',
-                                        "#refAttr": 'name',
-                                    }
-                                ]
-                            },
-                        }
-                    },
-                }
-            },
-            sorter: [
-                {
-                    $attr: {
-                        name: 1,
-                    },
-                    $direction: 'asc',
-                }
-            ]
-        }, context);
-        assert(systems.result.length === 1 && systems.result[0].id === 'ccc');
+        }, context, {});
+        assert(modies.length === 1);
+        // console.log(modies);
+        context.commit();
     });
 
-    it('[1.5]projection中的跨结点表达式', async () => {
-        const store = new TreeStore<EntityDict, UniversalContext<EntityDict>>(storageSchema);
-        const context = new UniversalContext(store);
+    it('[1.5]projection中的跨结点表达式', () => {
+        const store = new FrontendStore(storageSchema);
+        const context = new FrontendRuntimeContext(store);
+        context.begin();
 
-        await store.operate('application', {
+        const created = store.operate('modiEntity', {
+            id: generateNewId(),
             action: 'create',
             data: [{
-                id: 'aaa',
-                name: 'test',
-                description: 'ttttt',
-                type: 'web',
-                config: {
-                    type: 'web',
-                    domain: 'http://www.tt.com',
-                },
-                system: {
+                id: generateNewId(),
+                entity: 'user',
+                entityId: 'user-id-1',
+                modi: {
                     action: 'create',
                     data: {
-                        id: 'bbb',
-                        name: 'systest',
-                        description: 'aaaaa',
-                        config: {},
+                        id: generateNewId(),
+                        targetEntity: 'ddd',
+                        entity: 'user',
+                        entityId: 'user-id-1',
+                        action: 'create',
+                        data: {},
                     }
                 }
             }, {
-                id: 'aaa2',
-                name: 'test2',
-                description: 'ttttt2',
-                type: 'web',
-                config: {
-                    type: 'web',
-                    domain: 'http://www.tt.com',
-                },
-                system: {
+                id: generateNewId(),
+                entity: 'user3',
+                entityId: 'user3-id-1',
+                modi: {
                     action: 'create',
                     data: {
-                        id: 'ccc',
-                        name: 'test2',
-                        description: 'aaaaa2',
-                        config: {},
+                        id: generateNewId(),
+                        targetEntity: 'ddd',
+                        entity: 'user2',
+                        entityId: 'user2-id-1',
+                        action: 'update',
+                        data: {},
                     }
                 }
             }]
-        }, context);
+        }, context, {});
 
-        let applications = await store.select('application', {
+        let modiEntities = store.select('modiEntity', {
             data: {
                 "#id": 'node-1',
                 id: 1,
-                name: 1,
-                system: {
+                entity: 1,
+                modi: {
                     id: 1,
-                    name: 1,
+                    entity: 1,
                     $expr: {
                         $eq: [
                             {
-                                "#attr": 'name',
+                                "#attr": 'entity',
                             },
                             {
                                 '#refId': 'node-1',
-                                "#refAttr": 'name',
+                                "#refAttr": 'entity',
                             }
                         ]
                     },
                 }
             },
-        }, context);
-        // console.log(applications);
-        assert(applications.result.length === 2);
-        applications.result.forEach(
-            (app) => {
-                assert(app.id === 'aaa' && app.system!.$expr === false 
-                    || app.id === 'aaa2' && app.system!.$expr === true);
+        }, context, {});
+        // console.log(modiEntities);
+        assert(modiEntities.length === 2);
+        modiEntities.forEach(
+            (me) => {
+                assert(me.entity === 'user' && me?.modi?.$expr === true ||
+                    me.entity === 'user3' && me?.modi?.$expr === false);
             }
-        );
+        )
 
-        const applications2 = await store.select('application', {
+        const modiEntities2 = store.select('modiEntity', {
             data: {
                 $expr: {
                     $eq: [
                         {
-                            "#attr": 'name',
+                            "#attr": 'entity',
                         },
                         {
                             '#refId': 'node-1',
-                            "#refAttr": 'name',
+                            "#refAttr": 'entity',
                         }
                     ]
                 },
                 id: 1,
-                name: 1,
-                system: {
+                entity: 1,
+                modi: {
                     "#id": 'node-1',
                     id: 1,
-                    name: 1,
+                    targetEntity: 1,
+                    entity: 1,
                 }
             },
-        }, context);
-        console.log(applications2);
-        // assert(applications.length === 2);
-        applications2.result.forEach(
-            (app) => {
-                assert(app.id === 'aaa' && app.$expr === false
-                    || app.id === 'aaa2' && app.$expr === true);
-            }
+        }, context, {});
+        // console.log(modiEntities2);
+        assert(modiEntities2.length === 2);
+        modiEntities2.forEach(
+            (me) => assert(me.entity === 'user' && me.$expr === true ||
+                me.entity === 'user3' && me.$expr === false)
         );
+        context.commit();
     });
 
-    it('[1.6]projection中的一对多跨结点表达式', async () => {
-        const store = new TreeStore<EntityDict, UniversalContext<EntityDict>>(storageSchema);
-        const context = new UniversalContext(store);
+    it('[1.6]projection中的一对多跨结点表达式', () => {
+        const store = new FrontendStore(storageSchema);
+        const context = new FrontendRuntimeContext(store);
+        context.begin();
 
-        await store.operate('system', {
+        const created = store.operate('modiEntity', {
+            id: generateNewId(),
             action: 'create',
-            data: {
-                id: 'bbb',
-                name: 'test2',
-                description: 'aaaaa',
-                config: {},
-                application$system: [{
+            data: [{
+                id: generateNewId(),
+                entity: 'user',
+                entityId: 'user-id-1',
+                modi: {
                     action: 'create',
-                    data: [
-                        {
-                            id: 'aaa',
-                            name: 'test',
-                            description: 'ttttt',
-                            type: 'web',
-                            config: {
-                                type: 'web',
-                                domain: 'http://www.tt.com',
-                            },
-                        },
-                        {
+                    data: {
+                        id: generateNewId(),
+                        targetEntity: 'ddd',
+                        entity: 'user',
+                        entityId: 'user-id-1',
+                        action: 'create',
+                        data: {},
+                    }
+                }
+            }]
+        }, context, {});
 
-                            id: 'aaa2',
-                            name: 'test2',
-                            description: 'ttttt2',
-                            type: 'wechatMp',
-                            config: {
-                                type: 'web',
-                                domain: 'http://www.tt.com',
-                            },
-                        }
-                    ]
-                }]
-            }
-        }, context);
-
-        const systems = await store.select('system', {
+        const modies = store.select('modi', {
             data: {
                 "#id": 'node-1',
                 id: 1,
-                name: 1,
-                application$system: {
-                    $entity: 'application',
+                targetEntity: 1,
+                entity: 1,
+                modiEntity$modi: {
+                    $entity: 'modiEntity',
                     data: {
                         id: 1,
-                        name: 1,
+                        entity: 1,
+                        modiId: 1,
                         $expr: {
                             $eq: [
                                 {
-                                    "#attr": 'name',
+                                    "#attr": 'entity',
                                 },
                                 {
                                     '#refId': 'node-1',
-                                    "#refAttr": 'name',
+                                    "#refAttr": 'entity',
                                 }
                             ]
                         },
@@ -544,114 +545,103 @@ describe('基础测试', function () {
                     }
                 },
             },
-        }, context);
-        // console.log(systems);
-        assert(systems.result.length === 1);    
-        const [ system ] = systems.result;
-        const { application$system: applications }  = system;
-        assert(applications!.length === 2);
-        applications!.forEach(
-            (ele) => {
-                assert(ele.id === 'aaa' && ele.$expr === false && ele.$expr2 === 'bbb'
-                    || ele.id === 'aaa2' && ele.$expr === true && ele.$expr2 === 'bbb');
-            }
-        );
+        }, context, {});
+        // console.log(JSON.stringify(modies));
+        assert(modies.length === 1);
+        const [modi] = modies;
+        const { modiEntity$modi: modiEntities } = modi;
+        assert(modiEntities!.length === 1 && modiEntities![0]?.$expr === true && modiEntities![0]?.$expr2 === modi.id);
+        context.commit();
     });
 
     it('[1.7]事务性测试', async () => {
-        const store = new TreeStore<EntityDict, UniversalContext<EntityDict>>(storageSchema);
-        const context = new UniversalContext(store);
+        const store = new FrontendStore(storageSchema);
+        const context = new FrontendRuntimeContext(store);
+        context.begin();
 
-        await store.operate('system', {
+        const created = store.operate('modiEntity', {
+            id: generateNewId(),
             action: 'create',
-            data: {
-                id: 'bbb',
-                name: 'test2',
-                description: 'aaaaa',
-                config: {},
-                application$system: [{
+            data: [{
+                id: generateNewId(),
+                entity: 'user',
+                entityId: 'user-id-1',
+                modi: {
                     action: 'create',
-                    data: [
-                        {
-                            id: 'aaa',
-                            name: 'test',
-                            description: 'ttttt',
-                            type: 'web',
-                            config: {
-                                type: 'web',
-                                domain: 'http://www.tt.com',
-                            },
-                        },
-                        {
+                    data: {
+                        id: generateNewId(),
+                        targetEntity: 'ddd',
+                        entity: 'user',
+                        entityId: 'user-id-1',
+                        action: 'create',
+                        data: {},
+                    }
+                }
+            }, {
+                id: generateNewId(),
+                entity: 'user3',
+                entityId: 'user3-id-1',
+                modi: {
+                    action: 'create',
+                    data: {
+                        id: generateNewId(),
+                        targetEntity: 'ddd',
+                        entity: 'user2',
+                        entityId: 'user2-id-1',
+                        action: 'update',
+                        data: {},
+                    }
+                }
+            }]
+        }, context, {});
+        context.commit();
 
-                            id: 'aaa2',
-                            name: 'test2',
-                            description: 'ttttt2',
-                            type: 'wechatMp',
-                            config: {
-                                type: 'web',
-                                domain: 'http://www.tt.com',
-                            },
-                        }
-                    ]
-                }] as CreateOperationData['application$system']
-            }
-        }, context);
-
-        await context.begin();
-        const systems = await store.select('system', {
+        context.begin();
+        const modies = store.select('modi', {
             data: {
                 id: 1,
-                name: 1,
-                application$system: {
-                    $entity: 'application',
+                entity: 1,
+                modiEntity$modi: {
+                    $entity: 'modiEntity',
                     data: {
                         id: 1,
-                        name: 1,
+                        entity: 1,
+                        modiId: 1,
                     }
                 },
             },
-        }, context);
-        assert(systems.result.length === 1 && systems.result[0].application$system!.length === 2);
-        
-        await store.operate('application', {
+        }, context, {});
+        assert(modies.length === 2 && modies[0].modiEntity$modi!.length === 1);
+
+        store.operate('modiEntity', {
             action: 'remove',
             data: {},
             filter: {
-                id: 'aaa',
+                modiId: modies[0]!.id,
             }
-        }, context);
+        }, context, {});
 
-        const systems2 = await store.select('system', {
+        const me2 = store.select('modiEntity', {
             data: {
                 id: 1,
-                name: 1,
-                application$system: {
-                    $entity: 'application',
-                    data: {
-                        id: 1,
-                        name: 1,
-                    }
-                },
+                entity: 1,
             },
-        }, context);
-        assert(systems2.result.length === 1 && systems2.result[0].application$system!.length === 1);
-        await context.rollback();
+        }, context, {});
+        assert(me2.length === 2 && !!me2.find(ele => !!ele.$$deleteAt$$));
+        context.rollback();
 
-        const systems3 = await store.select('system', {
+        context.begin();
+
+        const me3 = store.select('modiEntity', {
             data: {
                 id: 1,
-                name: 1,
-                application$system: {
-                    $entity: 'application',
-                    data: {
-                        id: 1,
-                        name: 1,
-                    }
-                },
+                entity: 1,
             },
-        }, context);
-        assert(systems3.result.length === 1 && systems3.result[0].application$system!.length === 2);
+        }, context, {});
+        assert(me3.length === 2);
+        assert(me3.length === 2 && !me3.find(ele => !!ele.$$deleteAt$$));
+
+        context.commit();
     });
 });
 

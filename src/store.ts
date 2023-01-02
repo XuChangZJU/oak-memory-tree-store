@@ -1017,7 +1017,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 }
             }
             else if (attr === '#id') {
-                const nodeId = data[attr] as NodeId;
+                const nodeId = projection[attr] as NodeId;
                 assert(!nodeDict.hasOwnProperty(nodeId), `Filter中的nodeId「${nodeId}」出现了多次`);
                 Object.assign(nodeDict, {
                     [nodeId]: data,
