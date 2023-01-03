@@ -1,12 +1,13 @@
-import { cloneDeep, get, set, unset } from 'oak-domain/lib/utils/lodash';
+import { cloneDeep, get, groupBy, set, unset } from 'oak-domain/lib/utils/lodash';
 import { assert } from 'oak-domain/lib/utils/assert';
 import {
     DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation,
     DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateOption, OpRecord,
     DeduceCreateOperationData, UpdateOpResult, RemoveOpResult, SelectOpResult,
-    EntityDict, SelectOption, DeleteAtAttribute
+    EntityDict, SelectOption, DeleteAtAttribute, AggregationResult, AggregationOp
 } from "oak-domain/lib/types/Entity";
 import { ExpressionKey, EXPRESSION_PREFIX, NodeId, RefAttr } from 'oak-domain/lib/types/Demand';
+import { reinforceSelection } from 'oak-domain/lib/store/selection';
 import { OakCongruentRowExists, OakException, OakRowUnexistedException } from 'oak-domain/lib/types/Exception';
 import { EntityDict as BaseEntityDict } from 'oak-domain/lib/base-app-domain';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
@@ -973,12 +974,12 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
     }
 
 
-    operateSync<T extends keyof ED, OP extends TreeStoreOperateOption, Cxt extends SyncContext<ED>>(entity: T, operation: ED[T]['Operation'], context: Cxt, option: OP): OperationResult<ED> {
+    protected operateSync<T extends keyof ED, OP extends TreeStoreOperateOption, Cxt extends SyncContext<ED>>(entity: T, operation: ED[T]['Operation'], context: Cxt, option: OP): OperationResult<ED> {
         assert(context.getCurrentTxnId());
         return this.cascadeUpdate(entity, operation, context, option);
     }
 
-    async operateAsync<T extends keyof ED, OP extends TreeStoreOperateOption, Cxt extends AsyncContext<ED>>(entity: T, operation: ED[T]['Operation'], context: Cxt, option: OP) {
+    protected async operateAsync<T extends keyof ED, OP extends TreeStoreOperateOption, Cxt extends AsyncContext<ED>>(entity: T, operation: ED[T]['Operation'], context: Cxt, option: OP) {
         assert(context.getCurrentTxnId());
         return this.cascadeUpdateAsync(entity, operation, context, option);
     }
@@ -991,7 +992,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
      * @param nodeDict 
      * @param context 
      */
-    protected formExprInResult<T extends keyof ED, Cxt extends Context>(
+    private formExprInResult<T extends keyof ED, Cxt extends Context>(
         entity: T,
         projection: ED[T]['Selection']['data'],
         data: Partial<ED[T]['Schema']>,
@@ -1172,7 +1173,158 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         }
     }
 
-    selectSync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends SyncContext<ED>>(
+    /**
+     * 本函数把结果中的相应属性映射成一个字符串，用于GroupBy
+     * @param entity 
+     * @param row 
+     * @param projection 
+     */
+    private mappingProjectionOnRow<T extends keyof ED>(
+        entity: T,
+        row: Partial<ED[T]['Schema']>,
+        projection: ED[T]['Selection']['data']
+    ) {
+        let key = '';
+        let result = {} as Partial<ED[T]['Schema']>;
+        const values = [] as any[];
+        const mappingIter = <T2 extends keyof ED>(
+            entity2: T2,
+            row2: Partial<ED[T2]['Schema']>,
+            p2: ED[T2]['Selection']['data'],
+            result2: Partial<ED[T2]['Schema']>) => {
+            const keys = Object.keys(p2).sort((ele1, ele2) => ele1 < ele2 ? -1 : 1);
+            for (const k of keys) {
+                const rel = this.judgeRelation(entity2, k);
+                if (rel === 2) {
+                    (result2 as any)[k] = {};
+                    if (row2[k]) {
+                        mappingIter(k, row2[k]!, p2[k], result2[k]!);
+                    }
+                }
+                else if (typeof rel === 'string') {
+                    (result2 as any)[k] = {};
+                    if(row2[k]) {
+                        mappingIter(rel, row2[k]!, p2[k], result2[k]!);
+                    }
+                }
+                else {
+                    assert([0, 1].includes(rel as number));
+                    (result2 as any)[k] = row2[k];
+                    assert(['string', 'number', 'boolean'].includes(typeof row2[k]));
+                    key += `${row2[k]}`;
+                    values.push(row2[k]);
+                }
+            }
+        };
+
+        mappingIter(entity, row, projection, result);
+        return {
+            result,
+            key,
+            values,
+        };
+    }
+
+    private calcAggregation<T extends keyof ED>(
+        entity: T,
+        rows: Partial<ED[T]['Schema']>[],
+        aggregationData: ED[T]['Aggregation']['data']
+    ) {
+        const ops = Object.keys(aggregationData).filter(
+            ele => ele !== '$aggr'
+        ) as AggregationOp [];
+        const result = {} as Record<string, any>;
+        for (const row of rows) {
+            for (const op of ops) {
+                const { values } = this.mappingProjectionOnRow(entity, row, (aggregationData as any)[op]);
+                assert(values.length === 1, `聚合运算中，${op}的目标属性多于1个`);
+                if (op.startsWith('$max')) {
+                    if (![undefined, null].includes(values[0]) && (!result.hasOwnProperty(op) || result[op] < values[0])) {
+                        result[op] = values[0];
+                    }
+                }
+                else if (op.startsWith('$min')) {
+                    if (![undefined, null].includes(values[0]) && (!result.hasOwnProperty(op) || result[op] > values[0])) {
+                        result[op] = values[0];
+                    }
+                }
+                else if (op.startsWith('$sum')) {
+                    if (![undefined, null].includes(values[0])) {
+                        assert(typeof values[0] === 'number', '只有number类型的属性才可以计算sum');
+                        if (!result.hasOwnProperty(op)) {
+                            result[op] = values[0];
+                        }
+                        else {
+                            result[op] += values[0];
+                        }
+                    }
+                }
+                else if (op.startsWith('$count')) {
+                    if (![undefined, null].includes(values[0])) {
+                        if (!result.hasOwnProperty(op)) {
+                            result[op] = 1;
+                        }
+                        else {
+                            result[op] += 1;
+                        }
+                    }
+                }
+                else {
+                    assert(op.startsWith('$avg'));
+                    if (![undefined, null].includes(values[0])) {
+                        assert(typeof values[0] === 'number', '只有number类型的属性才可以计算avg');
+                        if (!result.hasOwnProperty(op)) {
+                            result[op] = {
+                                total: values[0],
+                                count: 1,
+                            };
+                        }
+                        else {
+                            result[op].total += values[0];
+                            result[op].count += 1;
+                        }
+                    }
+
+                }
+            }
+        }
+        for (const op of ops) {
+            if (!result[op]) {
+                result[op] = null;
+            }
+            else if (op.startsWith('$avg')) {
+                result[op] = result[op].total/result[op].count;
+            }
+        }
+        return result as AggregationResult<ED[T]['Schema']>[number];
+    }
+
+    private formAggregation<T extends keyof ED, Cxt extends Context>(
+        entity: T,
+        rows: Array<Partial<ED[T]['Schema']>>,
+        aggregationData: ED[T]['Aggregation']['data']) {
+        const { $aggr } = aggregationData;
+        if ($aggr) {
+            const groups = groupBy(rows, (row) => {
+                const { key } = this.mappingProjectionOnRow(entity, row, $aggr);
+                return key;
+            });
+            const result = Object.keys(groups).map(
+                (ele) => {
+                    const aggr = this.calcAggregation(entity, groups[ele], aggregationData);
+                    const { result: r } = this.mappingProjectionOnRow(entity, groups[ele][0], $aggr);
+                    aggr.data = r;
+                    return aggr;
+                }
+            );
+
+            return result;
+        }
+        const aggr = this.calcAggregation(entity, rows, aggregationData);
+        return [ aggr ];
+    }
+
+    protected selectSync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends SyncContext<ED>>(
         entity: T,
         selection: ED[T]['Selection'],
         context: Cxt,
@@ -1186,7 +1338,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         return result;
     }
 
-    async selectAsync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends AsyncContext<ED>>(
+    protected async selectAsync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends AsyncContext<ED>>(
         entity: T,
         selection: ED[T]['Selection'],
         context: Cxt,
@@ -1200,7 +1352,71 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         return result;
     }
 
-    countSync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends SyncContext<ED>>(
+    protected aggregateSync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends SyncContext<ED>>(
+        entity: T,
+        aggregation: ED[T]['Aggregation'],
+        context: Cxt,
+        option: OP): AggregationResult<ED[T]['Schema']> {
+        assert(context.getCurrentTxnId());
+        const { data, filter, sorter, indexFrom, count } = aggregation;
+        const p: ED[T]['Selection']['data'] = {};
+        for (const k in data) {
+            Object.assign(p, cloneDeep((data as any)[k]));
+        }
+        const selection: ED[T]['Selection'] = {
+            data: p,
+            filter,
+            sorter,
+            indexFrom,
+            count,
+        };
+        reinforceSelection(this.storageSchema, entity, selection);
+
+        const result = this.cascadeSelect(entity, selection, context, Object.assign({}, option, {
+            dontCollect: true,
+        }));
+        // 在这里再计算所有的表达式
+        result.forEach(
+            (ele) => this.formExprInResult(entity, selection.data, ele, {}, context)
+        );
+
+        // 最后计算Aggregation
+        return this.formAggregation(entity, result, aggregation.data);
+    }
+
+    protected async aggregateAsync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends AsyncContext<ED>>(
+        entity: T,
+        aggregation: ED[T]['Aggregation'],
+        context: Cxt,
+        option: OP): Promise<AggregationResult<ED[T]['Schema']>> {
+        assert(context.getCurrentTxnId());
+        const { data, filter, sorter, indexFrom, count } = aggregation;
+        const p: ED[T]['Selection']['data'] = {};
+        for (const k in data) {
+            Object.assign(p, cloneDeep((data as any)[k]));
+        }
+        const selection: ED[T]['Selection'] = {
+            data: p,
+            filter,
+            sorter,
+            indexFrom,
+            count,
+        };
+        reinforceSelection(this.storageSchema, entity, selection);
+
+        const result = await this.cascadeSelectAsync(entity, selection, context, Object.assign({}, option, {
+            dontCollect: true,
+        }));
+        // 在这里再计算所有的表达式
+        result.forEach(
+            (ele) => this.formExprInResult(entity, selection.data, ele, {}, context)
+        );
+
+        // 最后计算Aggregation
+        return this.formAggregation(entity, result, aggregation.data);
+    }
+
+    protected countSync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends SyncContext<ED>>(
         entity: T,
         selection: Pick<ED[T]['Selection'], 'filter' | 'count'>,
         context: Cxt, option: OP): number {
@@ -1215,7 +1431,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         return typeof selection.count === 'number' ? Math.min(result.length, selection.count) : result.length;
     }
 
-    async countAsync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends AsyncContext<ED>>(
+    protected async countAsync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends AsyncContext<ED>>(
         entity: T,
         selection: Pick<ED[T]['Selection'], 'filter' | 'count'>,
         context: Cxt, option: OP) {

@@ -81,7 +81,6 @@ describe('基础测试', function () {
         context.commit();
     });
 
-
     it('[1.1]子查询', () => {
         const store = new FrontendStore(storageSchema);
         const context = new FrontendRuntimeContext(store);
@@ -154,7 +153,7 @@ describe('基础测试', function () {
         context.commit();
     });
 
-    it('[1.2]行内属性上的表达式', async () => {
+    it('[1.2]行内属性上的表达式', () => {
         const store = new FrontendStore(storageSchema);
         const context = new FrontendRuntimeContext(store);
         context.begin();
@@ -218,7 +217,7 @@ describe('基础测试', function () {
         context.commit();
     });
 
-    it('[1.3]跨filter结点的表达式', async () => {
+    it('[1.3]跨filter结点的表达式', () => {
         const store = new FrontendStore(storageSchema);
         const context = new FrontendRuntimeContext(store);
         context.begin();
@@ -433,7 +432,6 @@ describe('基础测试', function () {
                 entity: 1,
                 modi: {
                     id: 1,
-                    entity: 1,
                     $expr: {
                         $eq: [
                             {
@@ -526,7 +524,7 @@ describe('基础测试', function () {
                     data: {
                         id: 1,
                         entity: 1,
-                        modiId: 1,
+                        // modiId: 1,
                         $expr: {
                             $eq: [
                                 {
@@ -554,7 +552,7 @@ describe('基础测试', function () {
         context.commit();
     });
 
-    it('[1.7]事务性测试', async () => {
+    it('[1.7]事务性测试', () => {
         const store = new FrontendStore(storageSchema);
         const context = new FrontendRuntimeContext(store);
         context.begin();
@@ -641,6 +639,91 @@ describe('基础测试', function () {
         assert(me3.length === 2);
         assert(me3.length === 2 && !me3.find(ele => !!ele.$$deleteAt$$));
 
+        context.commit();
+    });
+
+    it('[1.8]aggregate', () => {
+        const store = new FrontendStore(storageSchema);
+        const context = new FrontendRuntimeContext(store);
+        context.begin();
+        store.operate('modi', {
+            id: generateNewId(),
+            action: 'create',
+            data: [{
+                id: generateNewId(),
+                targetEntity: 'ddd',
+                entity: 'user',
+                entityId: 'user-id-1',
+                action: 'create',
+                data: {},
+                modiEntity$modi: {
+                    action: 'create',
+                    data: [{
+                        id: generateNewId(),
+                        entity: 'user',
+                        entityId: 'user-id-1',
+                    }, {
+                        id: generateNewId(),
+                        entity: 'user',
+                        entityId: 'user-id-1',
+                    }, {
+                        id: generateNewId(),
+                        entity: 'user',
+                        entityId: 'user-id-1',
+                    }, {
+                        id: generateNewId(),
+                        entity: 'user',
+                        entityId: 'user-id-1',
+                    }]
+                }
+            }, {
+                id: generateNewId(),
+                targetEntity: 'ddd2',
+                entity: 'user',
+                entityId: 'user-id-2',
+                action: 'create',
+                data: {},
+                modiEntity$modi: {
+                    action: 'create',
+                    data: [
+                        {
+                            id: generateNewId(),
+                            entity: 'user',
+                            entityId: 'user-id-2',
+                        },
+                        {
+                            id: generateNewId(),
+                            entity: 'user',
+                            entityId: 'user-id-2',
+                        },
+                        {
+                            id: generateNewId(),
+                            entity: 'user',
+                            entityId: 'user-id-2',
+                        }
+                    ],
+                },
+            }],
+        }, context, {});
+        context.commit();
+
+        context.begin();
+        const result = store.aggregate('modiEntity', {
+            data: {
+                '$count-1': {
+                    id: 1,
+                },
+                '$avg-1': {
+                    $$createAt$$: 1,
+                },
+                $aggr: {
+                    modi: {
+                        targetEntity: 1,
+                    }
+                }
+            },
+        }, context, {});
+        // console.log(result);
         context.commit();
     });
 });
