@@ -177,14 +177,17 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         };
     }
 
-    private constructRow<Cxt extends Context>(node: RowNode, context: Cxt) {
+    private constructRow<Cxt extends Context, OP extends TreeStoreSelectOption>(node: RowNode, context: Cxt, option?: OP) {
         let data = cloneDeep(node.$current);
         if (context.getCurrentTxnId() && node.$txnId === context.getCurrentTxnId()) {
-            if (!node.$next) {
-                // 如果是删除，返回带$$deleteAt$$的行
-                return Object.assign({}, data, {
-                    [DeleteAtAttribute]: 1,
-                });
+            if (!node.$next ) {
+                // 如果要求返回delete数据，返回带$$deleteAt$$的行
+                if (option?.includedDeleted) {
+                    return Object.assign({}, data, {
+                        [DeleteAtAttribute]: 1,
+                    });
+                }
+                return null;
             }
             else {
                 return Object.assign({}, data, node.$next);
@@ -398,7 +401,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         const { $search } = filter;
 
         return (node) => {
-            const row = this.constructRow(node, context) as any;
+            const row = this.constructRow(node, context, option) as any;
             for (const attr of attributes) {
                 const { name } = attr;
                 if (row && row[name] && (typeof row[name] === 'string' && row[name].includes($search) || obscurePass(row, name as string, option))) {
@@ -423,14 +426,14 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         }
         if (typeof filter !== 'object') {
             return (node) => {
-                const row = this.constructRow(node, context);
+                const row = this.constructRow(node, context, option);
                 return row ? (row as any)[attr] === filter || obscurePassLocal(row) : false;
             };
         }
         else if (this.getSchema()[entity].attributes[attr]?.type === 'object') {
             // 如果查询的目标就是object，则转化成object的比较
             return (node) => {
-                const row = this.constructRow(node, context);
+                const row = this.constructRow(node, context, option);
                 return row ? JSON.stringify((row as any)[attr]) === JSON.stringify(filter) || obscurePassLocal(row) : false;
             };
         }
@@ -598,7 +601,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             }
         }
         return (node, nodeDict, exprResolveFns) => {
-            const row = this.constructRow(node, context);
+            const row = this.constructRow(node, context, option);
             if (!row) {
                 return false;
             }
@@ -632,7 +635,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 const fn = this.translateExpression(entity, (filter as any)[attr], context, option);
                 fns.push(
                     (node, nodeDict, exprResolveFns) => {
-                        const row = this.constructRow(node, context);
+                        const row = this.constructRow(node, context, option);
                         if (!row) {
                             return false;
                         }
@@ -660,7 +663,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     const fn = this.translateFilter(attr, (filter as any)[attr], context, option);
                     fns.push(
                         (node, nodeDict, exprResolveFns) => {
-                            const row = this.constructRow(node, context);
+                            const row = this.constructRow(node, context, option);
                             if (obscurePass(row, 'entity', option) || obscurePass(row, 'entityId', option)) {
                                 return true;
                             }
@@ -684,7 +687,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     const fn = this.translateFilter(relation, (filter as any)[attr], context, option);
                     fns.push(
                         (node, nodeDict, exprResolveFns) => {
-                            const row = this.constructRow(node, context);
+                            const row = this.constructRow(node, context, option);
                             if (obscurePass(row, `${attr}Id`, option)) {
                                 return true;
                             }
@@ -709,10 +712,10 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             if (nodeId) {
                 assert(!nodeDict.hasOwnProperty(nodeId), `Filter中的nodeId「${nodeId}」出现了多次`);
                 Object.assign(nodeDict, {
-                    [nodeId]: this.constructRow(node, context),
+                    [nodeId]: this.constructRow(node, context, option),
                 });
             }
-            const row = this.constructRow(node, context);
+            const row = this.constructRow(node, context, option);
             if (!row) {
                 return false;
             }
@@ -725,10 +728,11 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         };
     }
 
-    private translateSorter<T extends keyof ED, Cxt extends Context>(
+    private translateSorter<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(
         entity: T,
         sorter: DeduceSorter<ED[T]['Schema']>,
-        context: Cxt):
+        context: Cxt,
+        option?: OP):
         (row1: object | null | undefined, row2: object | null | undefined) => number {
         const compare = <T2 extends keyof ED>(
             row1: object | null | undefined,
@@ -795,8 +799,8 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     assert(row11.entity === attr);
                     const node1 = this.store[row11.entity] && this.store[row11.entity]![row11.entityId];
                     const node2 = this.store[row22.entity] && this.store[row22.entity]![row22.entityId];
-                    const row111 = node1 && this.constructRow(node1, context);
-                    const row222 = node2 && this.constructRow(node2, context);
+                    const row111 = node1 && this.constructRow(node1, context, option);
+                    const row222 = node2 && this.constructRow(node2, context, option);
 
                     return compare(row111, row222, row11['entity'], (sortAttr as any)[attr], direction);
                 }
@@ -804,8 +808,8 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     assert(typeof relation === 'string');
                     const node1 = this.store[relation] && this.store[relation]![row11[`${attr}Id`]];
                     const node2 = this.store[relation] && this.store[relation]![row22[`${attr}Id`]];
-                    const row111 = node1 && this.constructRow(node1, context);
-                    const row222 = node2 && this.constructRow(node2, context);
+                    const row111 = node1 && this.constructRow(node1, context, option);
+                    const row222 = node2 && this.constructRow(node2, context, option);
 
                     return compare(row111, row222, relation, (sortAttr as any)[attr], direction);
                 }
@@ -866,10 +870,10 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             }
         }
         const rows = nodes.map(
-            (node) => this.constructRow(node, context) as EntityShape
+            (node) => this.constructRow(node, context, option) as EntityShape
         );
 
-        const rows2 = this.formResult(entity, rows, selection, context);
+        const rows2 = this.formResult(entity, rows, selection, context, option);
         return rows2;
     }
 
@@ -891,7 +895,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 } */
                 if (this.store[entity] && (this.store[entity]!)[id]) {
                     const node = this.store[entity] && (this.store[entity]!)[id as string];
-                    throw new OakCongruentRowExists(entity as string, this.constructRow(node, context)!);
+                    throw new OakCongruentRowExists(entity as string, this.constructRow(node, context, option)!);
                 }
                 if (!data.$$seq$$) {
                     // tree-store随意生成即可
@@ -1060,11 +1064,12 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         }
     }
 
-    private formResult<T extends keyof ED, Cxt extends Context>(
+    private formResult<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(
         entity: T,
         rows: Array<Partial<ED[T]['Schema']>>,
         selection: ED[T]['Selection'],
-        context: Cxt) {
+        context: Cxt,
+        option?: OP) {
         const { data, sorter, indexFrom, count } = selection;
 
         const findAvailableExprName = (current: string[]) => {
@@ -1160,7 +1165,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
 
         // 再计算sorter
         if (sorter) {
-            const sorterFn = this.translateSorter(entity, sorter, context);
+            const sorterFn = this.translateSorter(entity, sorter, context, option);
             rows2.sort(sorterFn);
         }
 
@@ -1203,7 +1208,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 }
                 else if (typeof rel === 'string') {
                     (result2 as any)[k] = {};
-                    if(row2[k]) {
+                    if (row2[k]) {
                         mappingIter(rel, row2[k]!, p2[k], result2[k]!);
                     }
                 }
@@ -1232,7 +1237,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
     ) {
         const ops = Object.keys(aggregationData).filter(
             ele => ele !== '$aggr'
-        ) as AggregationOp [];
+        ) as AggregationOp[];
         const result = {} as Record<string, any>;
         for (const row of rows) {
             for (const op of ops) {
@@ -1290,10 +1295,15 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         }
         for (const op of ops) {
             if (!result[op]) {
-                result[op] = null;
+                if (op.startsWith('$count')) {
+                    result[op] = 0;
+                }
+                else {
+                    result[op] = null;
+                }
             }
             else if (op.startsWith('$avg')) {
-                result[op] = result[op].total/result[op].count;
+                result[op] = result[op].total / result[op].count;
             }
         }
         return result as AggregationResult<ED[T]['Schema']>[number];
@@ -1321,7 +1331,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             return result;
         }
         const aggr = this.calcAggregation(entity, rows, aggregationData);
-        return [ aggr ];
+        return [aggr];
     }
 
     protected selectSync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends SyncContext<ED>>(
