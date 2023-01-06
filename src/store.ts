@@ -180,7 +180,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
     private constructRow<Cxt extends Context, OP extends TreeStoreSelectOption>(node: RowNode, context: Cxt, option?: OP) {
         let data = cloneDeep(node.$current);
         if (context.getCurrentTxnId() && node.$txnId === context.getCurrentTxnId()) {
-            if (!node.$next ) {
+            if (!node.$next) {
                 // 如果要求返回delete数据，返回带$$deleteAt$$的行
                 if (option?.includedDeleted) {
                     return Object.assign({}, data, {
@@ -1340,6 +1340,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         context: Cxt,
         option: OP): Partial<ED[T]['Schema']>[] {
         assert(context.getCurrentTxnId());
+        reinforceSelection(this.getSchema(), entity, selection);
         const result = this.cascadeSelect(entity, selection, context, option);
         // 在这里再计算所有的表达式
         result.forEach(
@@ -1354,6 +1355,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         context: Cxt,
         option: OP) {
         assert(context.getCurrentTxnId());
+        reinforceSelection(this.storageSchema, entity, selection);
         const result = await this.cascadeSelectAsync(entity, selection, context, option);
         // 在这里再计算所有的表达式
         result.forEach(
@@ -1430,11 +1432,13 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         entity: T,
         selection: Pick<ED[T]['Selection'], 'filter' | 'count'>,
         context: Cxt, option: OP): number {
-        const result = this.selectSync(entity, Object.assign({}, selection, {
+        const selection2 = Object.assign({}, selection, {
             data: {
                 id: 1,
-            }
-        }), context, Object.assign({}, option, {
+            },
+        });
+        reinforceSelection(this.storageSchema, entity, selection2);
+        const result = this.selectSync(entity, selection2, context, Object.assign({}, option, {
             dontCollect: true,
         }));
 
@@ -1445,11 +1449,13 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         entity: T,
         selection: Pick<ED[T]['Selection'], 'filter' | 'count'>,
         context: Cxt, option: OP) {
-        const result = await this.selectAsync(entity, Object.assign({}, selection, {
+        const selection2 = Object.assign({}, selection, {
             data: {
                 id: 1,
-            }
-        }), context, Object.assign({}, option, {
+            },
+        });
+        reinforceSelection(this.storageSchema, entity, selection2);
+        const result = await this.selectAsync(entity, selection2, context, Object.assign({}, option, {
             dontCollect: true,
         }));
 
