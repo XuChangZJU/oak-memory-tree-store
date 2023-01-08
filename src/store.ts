@@ -1240,24 +1240,24 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         aggregationData: ED[T]['Aggregation']['data']
     ) {
         const ops = Object.keys(aggregationData).filter(
-            ele => ele !== '$aggr'
+            ele => ele !== '#aggr'
         ) as AggregationOp[];
         const result = {} as Record<string, any>;
         for (const row of rows) {
             for (const op of ops) {
                 const { values } = this.mappingProjectionOnRow(entity, row, (aggregationData as any)[op]);
                 assert(values.length === 1, `聚合运算中，${op}的目标属性多于1个`);
-                if (op.startsWith('$max')) {
+                if (op.startsWith('#max')) {
                     if (![undefined, null].includes(values[0]) && (!result.hasOwnProperty(op) || result[op] < values[0])) {
                         result[op] = values[0];
                     }
                 }
-                else if (op.startsWith('$min')) {
+                else if (op.startsWith('#min')) {
                     if (![undefined, null].includes(values[0]) && (!result.hasOwnProperty(op) || result[op] > values[0])) {
                         result[op] = values[0];
                     }
                 }
-                else if (op.startsWith('$sum')) {
+                else if (op.startsWith('#sum')) {
                     if (![undefined, null].includes(values[0])) {
                         assert(typeof values[0] === 'number', '只有number类型的属性才可以计算sum');
                         if (!result.hasOwnProperty(op)) {
@@ -1268,7 +1268,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                         }
                     }
                 }
-                else if (op.startsWith('$count')) {
+                else if (op.startsWith('#count')) {
                     if (![undefined, null].includes(values[0])) {
                         if (!result.hasOwnProperty(op)) {
                             result[op] = 1;
@@ -1279,7 +1279,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     }
                 }
                 else {
-                    assert(op.startsWith('$avg'));
+                    assert(op.startsWith('#avg'));
                     if (![undefined, null].includes(values[0])) {
                         assert(typeof values[0] === 'number', '只有number类型的属性才可以计算avg');
                         if (!result.hasOwnProperty(op)) {
@@ -1299,14 +1299,14 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         }
         for (const op of ops) {
             if (!result[op]) {
-                if (op.startsWith('$count')) {
+                if (op.startsWith('#count')) {
                     result[op] = 0;
                 }
                 else {
                     result[op] = null;
                 }
             }
-            else if (op.startsWith('$avg')) {
+            else if (op.startsWith('#avg')) {
                 result[op] = result[op].total / result[op].count;
             }
         }
@@ -1317,17 +1317,17 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         entity: T,
         rows: Array<Partial<ED[T]['Schema']>>,
         aggregationData: ED[T]['Aggregation']['data']) {
-        const { $aggr } = aggregationData;
-        if ($aggr) {
+        const { "#aggr": aggrExpr } = aggregationData;
+        if (aggrExpr) {
             const groups = groupBy(rows, (row) => {
-                const { key } = this.mappingProjectionOnRow(entity, row, $aggr);
+                const { key } = this.mappingProjectionOnRow(entity, row, aggrExpr);
                 return key;
             });
             const result = Object.keys(groups).map(
                 (ele) => {
                     const aggr = this.calcAggregation(entity, groups[ele], aggregationData);
-                    const { result: r } = this.mappingProjectionOnRow(entity, groups[ele][0], $aggr);
-                    aggr.data = r;
+                    const { result: r } = this.mappingProjectionOnRow(entity, groups[ele][0], aggrExpr);
+                    aggr['#data'] = r;
                     return aggr;
                 }
             );

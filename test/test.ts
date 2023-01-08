@@ -709,20 +709,20 @@ describe('基础测试', function () {
         context.begin();
         const result = store.aggregate('modiEntity', {
             data: {
-                '$count-1': {
+                '#count-1': {
                     id: 1,
                 },
-                '$avg-1': {
+                '#avg-1': {
                     $$createAt$$: 1,
                 },
-                $aggr: {
+                '#aggr': {
                     modi: {
                         targetEntity: 1,
                     }
                 }
             },
         }, context, {});
-        // console.log(result);
+        console.log(result);
         context.commit();
     });
 
@@ -798,13 +798,13 @@ describe('基础测试', function () {
                 modiEntity$modi$$aggr: {
                     $entity: 'modiEntity',
                     data: {
-                        '$count-1': {
+                        '#count-1': {
                             id: 1,
                         },
-                        '$avg-1': {
+                        '#avg-1': {
                             $$createAt$$: 1,
                         },
-                        $aggr: {
+                        '#aggr': {
                             modi: {
                                 targetEntity: 1,
                             }
