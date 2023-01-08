@@ -849,7 +849,9 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 Object.assign(nodeDict2, nodeDict);
             }
             const exprResolveFns: Array<ExprResolveFn> = [];
-            if (!filterFn || filterFn(n, nodeDict2, exprResolveFns)) {
+
+            // 如果没有filterFn，要保证行不为null(本事务remove的case)
+            if (filterFn ? filterFn(n, nodeDict2, exprResolveFns) : this.constructRow(n, context, option)) {
                 // 如果有延时处理的expression，在这里加以判断，此时所有在filter中的node应该都已经加以遍历了
                 let exprResult = true;
                 if (exprResolveFns.length > 0) {
@@ -1046,10 +1048,12 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 }
             }
             else if (rel instanceof Array) {
-                if (data[attr] && (data[attr] as any) instanceof Array) {
-                    data[attr].map(
-                        (ele: any) => this.formExprInResult(rel[0], projection[attr].data, ele, nodeDict, context)
-                    )
+                if (!attr.endsWith('$$aggr')) {
+                    if (data[attr] && (data[attr] as any) instanceof Array) {
+                        data[attr].map(
+                            (ele: any) => this.formExprInResult(rel[0], projection[attr].data, ele, nodeDict, context)
+                        )
+                    }
                 }
             }
         }

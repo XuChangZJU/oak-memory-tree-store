@@ -625,7 +625,7 @@ describe('基础测试', function () {
                 entity: 1,
             },
         }, context, {});
-        assert(me2.length === 2 && !!me2.find(ele => !!ele.$$deleteAt$$));
+        assert(me2.length === 1 && !me2.find(ele => !!ele.$$deleteAt$$));
         context.rollback();
 
         context.begin();
@@ -636,7 +636,6 @@ describe('基础测试', function () {
                 entity: 1,
             },
         }, context, {});
-        assert(me3.length === 2);
         assert(me3.length === 2 && !me3.find(ele => !!ele.$$deleteAt$$));
 
         context.commit();
@@ -726,5 +725,99 @@ describe('基础测试', function () {
         // console.log(result);
         context.commit();
     });
+
+    it('[1.9]selection+aggregate', () => {
+        const store = new FrontendStore(storageSchema);
+        const context = new FrontendRuntimeContext(store);
+        context.begin();
+        store.operate('modi', {
+            id: generateNewId(),
+            action: 'create',
+            data: [{
+                id: generateNewId(),
+                targetEntity: 'ddd',
+                entity: 'user',
+                entityId: 'user-id-1',
+                action: 'create',
+                data: {},
+                modiEntity$modi: {
+                    action: 'create',
+                    data: [{
+                        id: generateNewId(),
+                        entity: 'user',
+                        entityId: 'user-id-1',
+                    }, {
+                        id: generateNewId(),
+                        entity: 'user',
+                        entityId: 'user-id-1',
+                    }, {
+                        id: generateNewId(),
+                        entity: 'user',
+                        entityId: 'user-id-1',
+                    }, {
+                        id: generateNewId(),
+                        entity: 'user',
+                        entityId: 'user-id-1',
+                    }]
+                }
+            }, {
+                id: generateNewId(),
+                targetEntity: 'ddd2',
+                entity: 'user',
+                entityId: 'user-id-2',
+                action: 'create',
+                data: {},
+                modiEntity$modi: {
+                    action: 'create',
+                    data: [
+                        {
+                            id: generateNewId(),
+                            entity: 'user',
+                            entityId: 'user-id-2',
+                        },
+                        {
+                            id: generateNewId(),
+                            entity: 'user',
+                            entityId: 'user-id-2',
+                        },
+                        {
+                            id: generateNewId(),
+                            entity: 'user',
+                            entityId: 'user-id-2',
+                        }
+                    ],
+                },
+            }],
+        }, context, {});
+        context.commit();
+
+        context.begin();
+        const result = store.select('modi', {
+            data: {
+                id: 1,
+                modiEntity$modi$$aggr: {
+                    $entity: 'modiEntity',
+                    data: {
+                        '$count-1': {
+                            id: 1,
+                        },
+                        '$avg-1': {
+                            $$createAt$$: 1,
+                        },
+                        $aggr: {
+                            modi: {
+                                targetEntity: 1,
+                            }
+                        }
+                    },
+                    filter: {
+                        entity: 'user',
+                    },
+                }
+            }
+        }, context, {});
+        console.log(result);
+        context.commit();
+    })
 });
 
