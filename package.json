@@ -9,7 +9,6 @@
         "lib/**/*"
     ],
     "dependencies": {
-        "luxon": "^2.3.0",
         "oak-domain": "file:../oak-domain",
         "uuid": "^8.3.2"
     },
