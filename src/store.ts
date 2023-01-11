@@ -1,12 +1,13 @@
-import { cloneDeep, get, set, unset } from 'oak-domain/lib/utils/lodash';
+import { cloneDeep, get, groupBy, set, unset } from 'oak-domain/lib/utils/lodash';
 import { assert } from 'oak-domain/lib/utils/assert';
 import {
     DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation,
     DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateOption, OpRecord,
     DeduceCreateOperationData, UpdateOpResult, RemoveOpResult, SelectOpResult,
-    EntityDict, SelectOption, DeleteAtAttribute
+    EntityDict, SelectOption, DeleteAtAttribute, AggregationResult, AggregationOp
 } from "oak-domain/lib/types/Entity";
 import { ExpressionKey, EXPRESSION_PREFIX, NodeId, RefAttr } from 'oak-domain/lib/types/Demand';
+import { reinforceSelection } from 'oak-domain/lib/store/selection';
 import { OakCongruentRowExists, OakException, OakRowUnexistedException } from 'oak-domain/lib/types/Exception';
 import { EntityDict as BaseEntityDict } from 'oak-domain/lib/base-app-domain';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
@@ -176,14 +177,17 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         };
     }
 
-    private constructRow<Cxt extends Context>(node: RowNode, context: Cxt) {
+    private constructRow<Cxt extends Context, OP extends TreeStoreSelectOption>(node: RowNode, context: Cxt, option?: OP) {
         let data = cloneDeep(node.$current);
         if (context.getCurrentTxnId() && node.$txnId === context.getCurrentTxnId()) {
             if (!node.$next) {
-                // 如果是删除，返回带$$deleteAt$$的行
-                return Object.assign({}, data, {
-                    [DeleteAtAttribute]: 1,
-                });
+                // 如果要求返回delete数据，返回带$$deleteAt$$的行
+                if (option?.includedDeleted) {
+                    return Object.assign({}, data, {
+                        [DeleteAtAttribute]: 1,
+                    });
+                }
+                return null;
             }
             else {
                 return Object.assign({}, data, node.$next);
@@ -397,7 +401,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         const { $search } = filter;
 
         return (node) => {
-            const row = this.constructRow(node, context) as any;
+            const row = this.constructRow(node, context, option) as any;
             for (const attr of attributes) {
                 const { name } = attr;
                 if (row && row[name] && (typeof row[name] === 'string' && row[name].includes($search) || obscurePass(row, name as string, option))) {
@@ -422,14 +426,14 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         }
         if (typeof filter !== 'object') {
             return (node) => {
-                const row = this.constructRow(node, context);
+                const row = this.constructRow(node, context, option);
                 return row ? (row as any)[attr] === filter || obscurePassLocal(row) : false;
             };
         }
         else if (this.getSchema()[entity].attributes[attr]?.type === 'object') {
             // 如果查询的目标就是object，则转化成object的比较
             return (node) => {
-                const row = this.constructRow(node, context);
+                const row = this.constructRow(node, context, option);
                 return row ? JSON.stringify((row as any)[attr]) === JSON.stringify(filter) || obscurePassLocal(row) : false;
             };
         }
@@ -597,7 +601,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             }
         }
         return (node, nodeDict, exprResolveFns) => {
-            const row = this.constructRow(node, context);
+            const row = this.constructRow(node, context, option);
             if (!row) {
                 return false;
             }
@@ -631,7 +635,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 const fn = this.translateExpression(entity, (filter as any)[attr], context, option);
                 fns.push(
                     (node, nodeDict, exprResolveFns) => {
-                        const row = this.constructRow(node, context);
+                        const row = this.constructRow(node, context, option);
                         if (!row) {
                             return false;
                         }
@@ -659,7 +663,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     const fn = this.translateFilter(attr, (filter as any)[attr], context, option);
                     fns.push(
                         (node, nodeDict, exprResolveFns) => {
-                            const row = this.constructRow(node, context);
+                            const row = this.constructRow(node, context, option);
                             if (obscurePass(row, 'entity', option) || obscurePass(row, 'entityId', option)) {
                                 return true;
                             }
@@ -683,7 +687,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     const fn = this.translateFilter(relation, (filter as any)[attr], context, option);
                     fns.push(
                         (node, nodeDict, exprResolveFns) => {
-                            const row = this.constructRow(node, context);
+                            const row = this.constructRow(node, context, option);
                             if (obscurePass(row, `${attr}Id`, option)) {
                                 return true;
                             }
@@ -708,10 +712,10 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             if (nodeId) {
                 assert(!nodeDict.hasOwnProperty(nodeId), `Filter中的nodeId「${nodeId}」出现了多次`);
                 Object.assign(nodeDict, {
-                    [nodeId]: this.constructRow(node, context),
+                    [nodeId]: this.constructRow(node, context, option),
                 });
             }
-            const row = this.constructRow(node, context);
+            const row = this.constructRow(node, context, option);
             if (!row) {
                 return false;
             }
@@ -724,10 +728,11 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         };
     }
 
-    private translateSorter<T extends keyof ED, Cxt extends Context>(
+    private translateSorter<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(
         entity: T,
         sorter: DeduceSorter<ED[T]['Schema']>,
-        context: Cxt):
+        context: Cxt,
+        option?: OP):
         (row1: object | null | undefined, row2: object | null | undefined) => number {
         const compare = <T2 extends keyof ED>(
             row1: object | null | undefined,
@@ -794,8 +799,8 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     assert(row11.entity === attr);
                     const node1 = this.store[row11.entity] && this.store[row11.entity]![row11.entityId];
                     const node2 = this.store[row22.entity] && this.store[row22.entity]![row22.entityId];
-                    const row111 = node1 && this.constructRow(node1, context);
-                    const row222 = node2 && this.constructRow(node2, context);
+                    const row111 = node1 && this.constructRow(node1, context, option);
+                    const row222 = node2 && this.constructRow(node2, context, option);
 
                     return compare(row111, row222, row11['entity'], (sortAttr as any)[attr], direction);
                 }
@@ -803,8 +808,8 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     assert(typeof relation === 'string');
                     const node1 = this.store[relation] && this.store[relation]![row11[`${attr}Id`]];
                     const node2 = this.store[relation] && this.store[relation]![row22[`${attr}Id`]];
-                    const row111 = node1 && this.constructRow(node1, context);
-                    const row222 = node2 && this.constructRow(node2, context);
+                    const row111 = node1 && this.constructRow(node1, context, option);
+                    const row222 = node2 && this.constructRow(node2, context, option);
 
                     return compare(row111, row222, relation, (sortAttr as any)[attr], direction);
                 }
@@ -844,7 +849,9 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 Object.assign(nodeDict2, nodeDict);
             }
             const exprResolveFns: Array<ExprResolveFn> = [];
-            if (!filterFn || filterFn(n, nodeDict2, exprResolveFns)) {
+
+            // 如果没有filterFn，要保证行不为null(本事务remove的case)
+            if (filterFn ? filterFn(n, nodeDict2, exprResolveFns) : this.constructRow(n, context, option)) {
                 // 如果有延时处理的expression，在这里加以判断，此时所有在filter中的node应该都已经加以遍历了
                 let exprResult = true;
                 if (exprResolveFns.length > 0) {
@@ -865,10 +872,10 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             }
         }
         const rows = nodes.map(
-            (node) => this.constructRow(node, context) as EntityShape
+            (node) => this.constructRow(node, context, option) as EntityShape
         );
 
-        const rows2 = this.formResult(entity, rows, selection, context);
+        const rows2 = this.formResult(entity, rows, selection, context, option);
         return rows2;
     }
 
@@ -890,7 +897,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 } */
                 if (this.store[entity] && (this.store[entity]!)[id]) {
                     const node = this.store[entity] && (this.store[entity]!)[id as string];
-                    throw new OakCongruentRowExists(entity as string, this.constructRow(node, context)!);
+                    throw new OakCongruentRowExists(entity as string, this.constructRow(node, context, option)!);
                 }
                 if (!data.$$seq$$) {
                     // tree-store随意生成即可
@@ -973,12 +980,12 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
     }
 
 
-    operateSync<T extends keyof ED, OP extends TreeStoreOperateOption, Cxt extends SyncContext<ED>>(entity: T, operation: ED[T]['Operation'], context: Cxt, option: OP): OperationResult<ED> {
+    protected operateSync<T extends keyof ED, OP extends TreeStoreOperateOption, Cxt extends SyncContext<ED>>(entity: T, operation: ED[T]['Operation'], context: Cxt, option: OP): OperationResult<ED> {
         assert(context.getCurrentTxnId());
         return this.cascadeUpdate(entity, operation, context, option);
     }
 
-    async operateAsync<T extends keyof ED, OP extends TreeStoreOperateOption, Cxt extends AsyncContext<ED>>(entity: T, operation: ED[T]['Operation'], context: Cxt, option: OP) {
+    protected async operateAsync<T extends keyof ED, OP extends TreeStoreOperateOption, Cxt extends AsyncContext<ED>>(entity: T, operation: ED[T]['Operation'], context: Cxt, option: OP) {
         assert(context.getCurrentTxnId());
         return this.cascadeUpdateAsync(entity, operation, context, option);
     }
@@ -991,7 +998,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
      * @param nodeDict 
      * @param context 
      */
-    protected formExprInResult<T extends keyof ED, Cxt extends Context>(
+    private formExprInResult<T extends keyof ED, Cxt extends Context>(
         entity: T,
         projection: ED[T]['Selection']['data'],
         data: Partial<ED[T]['Schema']>,
@@ -1017,7 +1024,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 }
             }
             else if (attr === '#id') {
-                const nodeId = data[attr] as NodeId;
+                const nodeId = projection[attr] as NodeId;
                 assert(!nodeDict.hasOwnProperty(nodeId), `Filter中的nodeId「${nodeId}」出现了多次`);
                 Object.assign(nodeDict, {
                     [nodeId]: data,
@@ -1041,10 +1048,12 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 }
             }
             else if (rel instanceof Array) {
-                if (data[attr] && (data[attr] as any) instanceof Array) {
-                    data[attr].map(
-                        (ele: any) => this.formExprInResult(rel[0], projection[attr].data, ele, nodeDict, context)
-                    )
+                if (!attr.endsWith('$$aggr')) {
+                    if (data[attr] && (data[attr] as any) instanceof Array) {
+                        data[attr].map(
+                            (ele: any) => this.formExprInResult(rel[0], projection[attr].data, ele, nodeDict, context)
+                        )
+                    }
                 }
             }
         }
@@ -1059,11 +1068,12 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         }
     }
 
-    private formResult<T extends keyof ED, Cxt extends Context>(
+    private formResult<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(
         entity: T,
         rows: Array<Partial<ED[T]['Schema']>>,
         selection: ED[T]['Selection'],
-        context: Cxt) {
+        context: Cxt,
+        option?: OP) {
         const { data, sorter, indexFrom, count } = selection;
 
         const findAvailableExprName = (current: string[]) => {
@@ -1159,7 +1169,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
 
         // 再计算sorter
         if (sorter) {
-            const sorterFn = this.translateSorter(entity, sorter, context);
+            const sorterFn = this.translateSorter(entity, sorter, context, option);
             rows2.sort(sorterFn);
         }
 
@@ -1172,12 +1182,169 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         }
     }
 
-    selectSync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends SyncContext<ED>>(
+    /**
+     * 本函数把结果中的相应属性映射成一个字符串，用于GroupBy
+     * @param entity 
+     * @param row 
+     * @param projection 
+     */
+    private mappingProjectionOnRow<T extends keyof ED>(
+        entity: T,
+        row: Partial<ED[T]['Schema']>,
+        projection: ED[T]['Selection']['data']
+    ) {
+        let key = '';
+        let result = {} as Partial<ED[T]['Schema']>;
+        const values = [] as any[];
+        const mappingIter = <T2 extends keyof ED>(
+            entity2: T2,
+            row2: Partial<ED[T2]['Schema']>,
+            p2: ED[T2]['Selection']['data'],
+            result2: Partial<ED[T2]['Schema']>) => {
+            const keys = Object.keys(p2).sort((ele1, ele2) => ele1 < ele2 ? -1 : 1);
+            for (const k of keys) {
+                const rel = this.judgeRelation(entity2, k);
+                if (rel === 2) {
+                    (result2 as any)[k] = {};
+                    if (row2[k]) {
+                        mappingIter(k, row2[k]!, p2[k], result2[k]!);
+                    }
+                }
+                else if (typeof rel === 'string') {
+                    (result2 as any)[k] = {};
+                    if (row2[k]) {
+                        mappingIter(rel, row2[k]!, p2[k], result2[k]!);
+                    }
+                }
+                else {
+                    assert([0, 1].includes(rel as number));
+                    (result2 as any)[k] = row2[k];
+                    assert(['string', 'number', 'boolean'].includes(typeof row2[k]));
+                    key += `${row2[k]}`;
+                    values.push(row2[k]);
+                }
+            }
+        };
+
+        mappingIter(entity, row, projection, result);
+        return {
+            result,
+            key,
+            values,
+        };
+    }
+
+    private calcAggregation<T extends keyof ED>(
+        entity: T,
+        rows: Partial<ED[T]['Schema']>[],
+        aggregationData: ED[T]['Aggregation']['data']
+    ) {
+        const ops = Object.keys(aggregationData).filter(
+            ele => ele !== '#aggr'
+        ) as AggregationOp[];
+        const result = {} as Record<string, any>;
+        for (const row of rows) {
+            for (const op of ops) {
+                const { values } = this.mappingProjectionOnRow(entity, row, (aggregationData as any)[op]);
+                assert(values.length === 1, `聚合运算中，${op}的目标属性多于1个`);
+                if (op.startsWith('#max')) {
+                    if (![undefined, null].includes(values[0]) && (!result.hasOwnProperty(op) || result[op] < values[0])) {
+                        result[op] = values[0];
+                    }
+                }
+                else if (op.startsWith('#min')) {
+                    if (![undefined, null].includes(values[0]) && (!result.hasOwnProperty(op) || result[op] > values[0])) {
+                        result[op] = values[0];
+                    }
+                }
+                else if (op.startsWith('#sum')) {
+                    if (![undefined, null].includes(values[0])) {
+                        assert(typeof values[0] === 'number', '只有number类型的属性才可以计算sum');
+                        if (!result.hasOwnProperty(op)) {
+                            result[op] = values[0];
+                        }
+                        else {
+                            result[op] += values[0];
+                        }
+                    }
+                }
+                else if (op.startsWith('#count')) {
+                    if (![undefined, null].includes(values[0])) {
+                        if (!result.hasOwnProperty(op)) {
+                            result[op] = 1;
+                        }
+                        else {
+                            result[op] += 1;
+                        }
+                    }
+                }
+                else {
+                    assert(op.startsWith('#avg'));
+                    if (![undefined, null].includes(values[0])) {
+                        assert(typeof values[0] === 'number', '只有number类型的属性才可以计算avg');
+                        if (!result.hasOwnProperty(op)) {
+                            result[op] = {
+                                total: values[0],
+                                count: 1,
+                            };
+                        }
+                        else {
+                            result[op].total += values[0];
+                            result[op].count += 1;
+                        }
+                    }
+
+                }
+            }
+        }
+        for (const op of ops) {
+            if (!result[op]) {
+                if (op.startsWith('#count')) {
+                    result[op] = 0;
+                }
+                else {
+                    result[op] = null;
+                }
+            }
+            else if (op.startsWith('#avg')) {
+                result[op] = result[op].total / result[op].count;
+            }
+        }
+        return result as AggregationResult<ED[T]['Schema']>[number];
+    }
+
+    private formAggregation<T extends keyof ED, Cxt extends Context>(
+        entity: T,
+        rows: Array<Partial<ED[T]['Schema']>>,
+        aggregationData: ED[T]['Aggregation']['data']) {
+        const { "#aggr": aggrExpr } = aggregationData;
+        if (aggrExpr) {
+            const groups = groupBy(rows, (row) => {
+                const { key } = this.mappingProjectionOnRow(entity, row, aggrExpr);
+                return key;
+            });
+            const result = Object.keys(groups).map(
+                (ele) => {
+                    const aggr = this.calcAggregation(entity, groups[ele], aggregationData);
+                    const { result: r } = this.mappingProjectionOnRow(entity, groups[ele][0], aggrExpr);
+                    aggr['#data'] = r;
+                    return aggr;
+                }
+            );
+
+            return result;
+        }
+        const aggr = this.calcAggregation(entity, rows, aggregationData);
+        return [aggr];
+    }
+
+    protected selectSync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends SyncContext<ED>>(
         entity: T,
         selection: ED[T]['Selection'],
         context: Cxt,
         option: OP): Partial<ED[T]['Schema']>[] {
         assert(context.getCurrentTxnId());
+        reinforceSelection(this.getSchema(), entity, selection);
         const result = this.cascadeSelect(entity, selection, context, option);
         // 在这里再计算所有的表达式
         result.forEach(
@@ -1186,12 +1353,13 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         return result;
     }
 
-    async selectAsync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends AsyncContext<ED>>(
+    protected async selectAsync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends AsyncContext<ED>>(
         entity: T,
         selection: ED[T]['Selection'],
         context: Cxt,
         option: OP) {
         assert(context.getCurrentTxnId());
+        reinforceSelection(this.storageSchema, entity, selection);
         const result = await this.cascadeSelectAsync(entity, selection, context, option);
         // 在这里再计算所有的表达式
         result.forEach(
@@ -1200,30 +1368,98 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         return result;
     }
 
-    countSync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends SyncContext<ED>>(
+    protected aggregateSync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends SyncContext<ED>>(
+        entity: T,
+        aggregation: ED[T]['Aggregation'],
+        context: Cxt,
+        option: OP): AggregationResult<ED[T]['Schema']> {
+        assert(context.getCurrentTxnId());
+        const { data, filter, sorter, indexFrom, count } = aggregation;
+        const p: ED[T]['Selection']['data'] = {};
+        for (const k in data) {
+            Object.assign(p, cloneDeep((data as any)[k]));
+        }
+        const selection: ED[T]['Selection'] = {
+            data: p,
+            filter,
+            sorter,
+            indexFrom,
+            count,
+        };
+        reinforceSelection(this.storageSchema, entity, selection);
+
+        const result = this.cascadeSelect(entity, selection, context, Object.assign({}, option, {
+            dontCollect: true,
+        }));
+        // 在这里再计算所有的表达式
+        result.forEach(
+            (ele) => this.formExprInResult(entity, selection.data, ele, {}, context)
+        );
+
+        // 最后计算Aggregation
+        return this.formAggregation(entity, result, aggregation.data);
+    }
+
+    protected async aggregateAsync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends AsyncContext<ED>>(
+        entity: T,
+        aggregation: ED[T]['Aggregation'],
+        context: Cxt,
+        option: OP): Promise<AggregationResult<ED[T]['Schema']>> {
+        assert(context.getCurrentTxnId());
+        const { data, filter, sorter, indexFrom, count } = aggregation;
+        const p: ED[T]['Selection']['data'] = {};
+        for (const k in data) {
+            Object.assign(p, cloneDeep((data as any)[k]));
+        }
+        const selection: ED[T]['Selection'] = {
+            data: p,
+            filter,
+            sorter,
+            indexFrom,
+            count,
+        };
+        reinforceSelection(this.storageSchema, entity, selection);
+
+        const result = await this.cascadeSelectAsync(entity, selection, context, Object.assign({}, option, {
+            dontCollect: true,
+        }));
+        // 在这里再计算所有的表达式
+        result.forEach(
+            (ele) => this.formExprInResult(entity, selection.data, ele, {}, context)
+        );
+
+        // 最后计算Aggregation
+        return this.formAggregation(entity, result, aggregation.data);
+    }
+
+    protected countSync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends SyncContext<ED>>(
         entity: T,
         selection: Pick<ED[T]['Selection'], 'filter' | 'count'>,
         context: Cxt, option: OP): number {
-        const result = this.selectSync(entity, Object.assign({}, selection, {
+        const selection2 = Object.assign({}, selection, {
             data: {
                 id: 1,
-            }
-        }), context, Object.assign({}, option, {
+            },
+        });
+        reinforceSelection(this.storageSchema, entity, selection2);
+        const result = this.selectSync(entity, selection2, context, Object.assign({}, option, {
             dontCollect: true,
         }));
 
         return typeof selection.count === 'number' ? Math.min(result.length, selection.count) : result.length;
     }
 
-    async countAsync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends AsyncContext<ED>>(
+    protected async countAsync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends AsyncContext<ED>>(
         entity: T,
         selection: Pick<ED[T]['Selection'], 'filter' | 'count'>,
         context: Cxt, option: OP) {
-        const result = await this.selectAsync(entity, Object.assign({}, selection, {
+        const selection2 = Object.assign({}, selection, {
             data: {
                 id: 1,
-            }
-        }), context, Object.assign({}, option, {
+            },
+        });
+        reinforceSelection(this.storageSchema, entity, selection2);
+        const result = await this.selectAsync(entity, selection2, context, Object.assign({}, option, {
             dontCollect: true,
         }));
 
