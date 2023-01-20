@@ -1,9 +1,8 @@
 import { cloneDeep, get, groupBy, set, unset } from 'oak-domain/lib/utils/lodash';
 import { assert } from 'oak-domain/lib/utils/assert';
 import {
-    DeduceCreateSingleOperation, DeduceFilter, DeduceSelection, EntityShape, DeduceRemoveOperation,
-    DeduceUpdateOperation, DeduceSorter, DeduceSorterAttr, OperationResult, OperateOption, OpRecord,
-    DeduceCreateOperationData, UpdateOpResult, RemoveOpResult, SelectOpResult,
+    EntityShape, OperationResult, OperateOption, OpRecord,
+    UpdateOpResult, RemoveOpResult, SelectOpResult,
     EntityDict, SelectOption, DeleteAtAttribute, AggregationResult, AggregationOp
 } from "oak-domain/lib/types/Entity";
 import { ExpressionKey, EXPRESSION_PREFIX, NodeId, RefAttr } from 'oak-domain/lib/types/Demand';
@@ -198,7 +197,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
 
     private translateLogicFilter<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(
         entity: T,
-        filter: DeduceFilter<ED[T]['Schema']>,
+        filter: NonNullable<ED[T]['Selection']['filter']>,
         attr: string,
         context: Cxt,
         option?: OP): (node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean {
@@ -206,7 +205,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             case '$and': {
                 const filters = filter[attr];
                 const fns = filters!.map(
-                    ele => this.translateFilter(entity, ele, context, option)
+                    (ele: NonNullable<ED[T]['Selection']['filter']>) => this.translateFilter(entity, ele, context, option)
                 );
                 return (node, nodeDict, exprResolveFns) => {
                     for (const fn of fns) {
@@ -220,7 +219,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             case '$or': {
                 const filters = filter[attr];
                 const fns = filters!.map(
-                    ele => this.translateFilter(entity, ele, context, option)
+                    (ele : NonNullable<ED[T]['Selection']['filter']>) => this.translateFilter(entity, ele, context, option)
                 );
                 return (node, nodeDict, exprResolveFns) => {
                     for (const fn of fns) {
@@ -534,7 +533,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                                             const option2 = Object.assign({}, option, { nodeDict });
                                             const legalSets = this.selectAbjointRow(inData.entity, inData, context, option2).map(
                                                 (ele) => {
-                                                    const { data } = inData as DeduceSelection<ED[keyof ED]['Schema']>;
+                                                    const { data } = inData as ED[keyof ED]['Selection'];
                                                     const key = Object.keys(data)[0];
                                                     return (ele as any)[key];
                                                 }
@@ -563,7 +562,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                         try {
                             const legalSets = this.selectAbjointRow(inData.entity, inData, context, option).map(
                                 (ele) => {
-                                    const { data } = inData as DeduceSelection<ED[keyof ED]['Schema']>;
+                                    const { data } = inData as ED[keyof ED]['Selection'];
                                     const key = Object.keys(data)[0];
                                     return (ele as any)[key];
                                 }
@@ -580,7 +579,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                                         const option2 = Object.assign({}, option, { nodeDict });
                                         const legalSets = this.selectAbjointRow(inData.entity, inData, context, option2).map(
                                             (ele) => {
-                                                const { data } = inData as DeduceSelection<ED[keyof ED]['Schema']>;
+                                                const { data } = inData as ED[keyof ED]['Selection'];
                                                 const key = Object.keys(data)[0];
                                                 return (ele as any)[key];
                                             }
@@ -616,7 +615,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
 
     private translateFilter<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(
         entity: T,
-        filter: DeduceFilter<ED[T]['Schema']>,
+        filter: ED[T]['Selection']['filter'],
         context: Cxt,
         option?: OP): (node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean {
         const fns: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean> = [];
@@ -629,7 +628,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 })['#id'];
             }
             else if (['$and', '$or', '$xor', '$not'].includes(attr)) {
-                fns.push(this.translateLogicFilter(entity, filter, attr, context, option));
+                fns.push(this.translateLogicFilter(entity, filter!, attr, context, option));
             }
             else if (attr.toLowerCase().startsWith(EXPRESSION_PREFIX)) {
                 const fn = this.translateExpression(entity, (filter as any)[attr], context, option);
@@ -730,7 +729,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
 
     private translateSorter<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(
         entity: T,
-        sorter: DeduceSorter<ED[T]['Schema']>,
+        sorter: NonNullable<ED[T]['Selection']['sorter']>,
         context: Cxt,
         option?: OP):
         (row1: object | null | undefined, row2: object | null | undefined) => number {
@@ -738,7 +737,8 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             row1: object | null | undefined,
             row2: object | null | undefined,
             entity2: T2,
-            sortAttr: DeduceSorterAttr<ED[T2]['Schema']>, direction?: 'asc' | 'desc'): number => {
+            sortAttr: NonNullable<ED[T]['Selection']['sorter']>[number]['$attr'],
+            direction?: NonNullable<ED[T]['Selection']['sorter']>[number]['$direction']): number => {
             const row11 = row1 as any;
             const row22 = row2 as any;
             assert(Object.keys(sortAttr).length === 1);
@@ -881,14 +881,14 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
 
     protected updateAbjointRow<T extends keyof ED, OP extends TreeStoreOperateOption, Cxt extends Context>(
         entity: T,
-        operation: DeduceCreateSingleOperation<ED[T]['Schema']> | DeduceUpdateOperation<ED[T]['Schema']> | DeduceRemoveOperation<ED[T]['Schema']>,
+        operation: ED[T]['CreateSingle'] | ED[T]['Update'] | ED[T]['Remove'],
         context: Cxt,
         option?: OP): number {
         const { data, action, id: operId } = operation;
 
         switch (action) {
             case 'create': {
-                const { id } = data as DeduceCreateOperationData<ED[T]["Schema"]>;
+                const { id } = data as ED[T]['CreateSingle']['data'];
                 assert(id);
                 // const node = this.store[entity] && (this.store[entity]!)[id as string];
                 // const row = node && this.constructRow(node, context) || {};
@@ -973,7 +973,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
 
     protected async updateAbjointRowAsync<T extends keyof ED, OP extends TreeStoreOperateOption, Cxt extends Context>(
         entity: T,
-        operation: DeduceCreateSingleOperation<ED[T]['Schema']> | DeduceUpdateOperation<ED[T]['Schema']> | DeduceRemoveOperation<ED[T]['Schema']>,
+        operation: ED[T]['CreateSingle'] | ED[T]['Update'] | ED[T]['Remove'],
         context: Cxt,
         option?: OP) {
         return this.updateAbjointRow(entity, operation, context, option);
@@ -1169,7 +1169,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
 
         // 再计算sorter
         if (sorter) {
-            const sorterFn = this.translateSorter(entity, sorter, context, option);
+            const sorterFn = this.translateSorter(entity, sorter as NonNullable<ED[T]['Selection']['sorter']>, context, option);
             rows2.sort(sorterFn);
         }
 
@@ -1602,7 +1602,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                                 this.updateAbjointRow(e, {
                                     id: 'dummy',
                                     action: 'update',
-                                    data: dd,
+                                    data: dd as any,
                                     filter: {
                                         id: dd.id,
                                     } as any,
@@ -1622,7 +1622,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                             this.updateAbjointRow(e, {
                                 id: 'dummy',
                                 action: 'update',
-                                data: d,
+                                data: d as any,
                                 filter: {
                                     id: d.id,
                                 } as any,
@@ -1666,7 +1666,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                                 this.updateAbjointRow(entity, {
                                     id: 'dummy',
                                     action: 'update',
-                                    data: d[entity]![id],
+                                    data: d[entity]![id] as any,
                                     filter: {
                                         id,
                                     } as any,
