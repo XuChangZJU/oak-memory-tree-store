@@ -32,7 +32,7 @@ function obscurePass(row: any, attr: string, option?: SelectOption): boolean {
     return !!(option?.obscure && row[attr] === undefined);
 }
 
-class OakExpressionUnresolvedException extends OakException {
+class OakExpressionUnresolvedException<ED extends EntityDict & BaseEntityDict> extends OakException<ED> {
 
 }
 
