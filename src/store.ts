@@ -6,7 +6,6 @@ import {
     EntityDict, SelectOption, DeleteAtAttribute, AggregationResult, AggregationOp
 } from "oak-domain/lib/types/Entity";
 import { ExpressionKey, EXPRESSION_PREFIX, NodeId, RefAttr } from 'oak-domain/lib/types/Demand';
-import { reinforceSelection } from 'oak-domain/lib/store/selection';
 import { OakCongruentRowExists, OakException, OakRowUnexistedException } from 'oak-domain/lib/types/Exception';
 import { EntityDict as BaseEntityDict } from 'oak-domain/lib/base-app-domain';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
@@ -1344,7 +1343,6 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         context: Cxt,
         option: OP): Partial<ED[T]['Schema']>[] {
         assert(context.getCurrentTxnId());
-        reinforceSelection(this.getSchema(), entity, selection);
         const result = this.cascadeSelect(entity, selection, context, option);
         // 在这里再计算所有的表达式
         result.forEach(
@@ -1359,7 +1357,6 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         context: Cxt,
         option: OP) {
         assert(context.getCurrentTxnId());
-        reinforceSelection(this.storageSchema, entity, selection);
         const result = await this.cascadeSelectAsync(entity, selection, context, option);
         // 在这里再计算所有的表达式
         result.forEach(
@@ -1386,7 +1383,6 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             indexFrom,
             count,
         };
-        reinforceSelection(this.storageSchema, entity, selection);
 
         const result = this.cascadeSelect(entity, selection, context, Object.assign({}, option, {
             dontCollect: true,
@@ -1418,7 +1414,6 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             indexFrom,
             count,
         };
-        reinforceSelection(this.storageSchema, entity, selection);
 
         const result = await this.cascadeSelectAsync(entity, selection, context, Object.assign({}, option, {
             dontCollect: true,
@@ -1441,7 +1436,6 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 id: 1,
             },
         });
-        reinforceSelection(this.storageSchema, entity, selection2);
         const result = this.selectSync(entity, selection2, context, Object.assign({}, option, {
             dontCollect: true,
         }));
@@ -1458,7 +1452,6 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 id: 1,
             },
         });
-        reinforceSelection(this.storageSchema, entity, selection2);
         const result = await this.selectAsync(entity, selection2, context, Object.assign({}, option, {
             dontCollect: true,
         }));
