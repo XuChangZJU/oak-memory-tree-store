@@ -1670,7 +1670,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                                     id: 'dummy',
                                     action: 'create',
                                     data: d[entity]![id],
-                                }, context, option2);
+                                } as ED[keyof ED]['CreateSingle'], context, option2);
                             }
                         }
                     }
