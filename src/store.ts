@@ -679,8 +679,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                         }
                     );
                 }
-                else {
-                    assert(typeof relation === 'string');
+                else if (typeof relation === 'string') {
                     // 只能是基于普通属性的外键
                     const fn = this.translateFilter(relation, (filter as any)[attr], context, option);
                     fns.push(
@@ -702,6 +701,10 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                             return false;
                         }
                     );
+                }
+                else {
+                    // metadata
+                    assert(relation === 0);
                 }
             }
         }
