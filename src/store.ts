@@ -187,8 +187,18 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 }
                 return null;
             }
+            else if (!node.$current) {
+                // 本事务创建的，$$createAt$$和$$updateAt$$置为1
+                return Object.assign({}, data, node.$next, {
+                    $$createAt$$: 1,
+                    $$updateAt$$: 1,
+                });
+            }
             else {
-                return Object.assign({}, data, node.$next);
+                // 本事务更新的，$$updateAt$$置为1
+                return Object.assign({}, data, node.$next, {
+                    $$updateAt$$: 1,
+                });
             }
         }
         return data;
@@ -218,7 +228,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             case '$or': {
                 const filters = filter[attr];
                 const fns = filters!.map(
-                    (ele : NonNullable<ED[T]['Selection']['filter']>) => this.translateFilter(entity, ele, context, option)
+                    (ele: NonNullable<ED[T]['Selection']['filter']>) => this.translateFilter(entity, ele, context, option)
                 );
                 return (node, nodeDict, exprResolveFns) => {
                     for (const fn of fns) {
@@ -905,7 +915,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     // tree-store随意生成即可
                     Object.assign(data, {
                         $$seq$$: `${Math.ceil((Math.random() + 1000) * 100)}`,
-                    })
+                    });
                 }
                 const node2: RowNode = {
                     $txnId: context.getCurrentTxnId()!,
