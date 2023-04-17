@@ -3,7 +3,7 @@ import { assert } from 'oak-domain/lib/utils/assert';
 import {
     EntityShape, OperationResult, OperateOption, OpRecord,
     UpdateOpResult, RemoveOpResult, SelectOpResult,
-    EntityDict, SelectOption, DeleteAtAttribute, AggregationResult, AggregationOp
+    EntityDict, SelectOption, DeleteAtAttribute, AggregationResult, AggregationOp, CreateAtAttribute, UpdateAtAttribute
 } from "oak-domain/lib/types/Entity";
 import { ExpressionKey, EXPRESSION_PREFIX, NodeId, RefAttr } from 'oak-domain/lib/types/Demand';
 import { OakCongruentRowExists, OakException, OakRowUnexistedException } from 'oak-domain/lib/types/Exception';
@@ -190,14 +190,14 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             else if (!node.$current) {
                 // 本事务创建的，$$createAt$$和$$updateAt$$置为1
                 return Object.assign({}, data, node.$next, {
-                    $$createAt$$: 1,
-                    $$updateAt$$: 1,
+                    [CreateAtAttribute]: 1,
+                    [UpdateAtAttribute]: 1,
                 });
             }
             else {
                 // 本事务更新的，$$updateAt$$置为1
                 return Object.assign({}, data, node.$next, {
-                    $$updateAt$$: 1,
+                    [UpdateAtAttribute]: 1,
                 });
             }
         }
@@ -1166,7 +1166,8 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         }
         if (incompletedRowIds.length > 0) {
             // 如果有缺失属性的行，则报OakRowUnexistedException错误
-            throw new OakRowUnexistedException([{
+            // fixed: 这里不报了。按约定框架应当保证取到要访问的属性
+            /* throw new OakRowUnexistedException([{
                 entity,
                 selection: {
                     data: projection,
@@ -1176,7 +1177,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                         },
                     },
                 },
-            }]);
+            }]); */
         }
 
         // 再计算sorter
