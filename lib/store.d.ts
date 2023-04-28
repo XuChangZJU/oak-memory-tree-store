@@ -46,6 +46,8 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
     private translateExpressionNode;
     private translateExpression;
     private translateFulltext;
+    private translatePredicate;
+    private translateObjectPredicate;
     private translateAttribute;
     private translateFilter;
     private translateSorter;

@@ -612,6 +612,7 @@ describe('基础测试', function () {
         assert(modies.length === 2 && modies[0].modiEntity$modi!.length === 1);
 
         store.operate('modiEntity', {
+            id: generateNewId(),
             action: 'remove',
             data: {},
             filter: {
@@ -818,6 +819,272 @@ describe('基础测试', function () {
         }, context, {});
         console.log(result);
         context.commit();
-    })
+    });
+
+    it('[1.10]select json', () => {
+        const store = new FrontendStore(storageSchema);
+        const context = new FrontendRuntimeContext(store);
+        context.begin();
+        const id = generateNewId();
+        store.operate('oper', {
+            id: generateNewId(),
+            action: 'create',
+            data: {
+                id,
+                action: 'test',
+                data: {
+                    name: 'xc',
+                    books: [{
+                        title: 'mathmatics',
+                        price: 1,
+                    }, {
+                        title: 'english',
+                        price: 2,
+                    }]
+                },
+                targetEntity: 'bbb',
+            }
+        }, context, {});
+
+        const row = store.select('oper', {
+            data: {
+                id: 1,
+                data: {
+                    name: 1,
+                    books: [undefined, {
+                        title: 1,
+                        price: 1,
+                    }],
+                },
+            },
+        }, context, {});
+
+        context.commit();
+        console.log(JSON.stringify(row));
+    });
+
+
+    it('[1.11]json as filter', () => {
+        const store = new FrontendStore(storageSchema);
+        const context = new FrontendRuntimeContext(store);
+        context.begin();
+
+        const id = generateNewId();
+        store.operate('oper', {
+            id: generateNewId(),
+            action: 'create',
+            data: {
+                id,
+                action: 'test',
+                data: {
+                    name: 'xc',
+                    books: [{
+                        title: 'mathmatics',
+                        price: 1,
+                    }, {
+                        title: 'english',
+                        price: 2,
+                    }]
+                },
+                targetEntity: 'bbb',
+            }
+        }, context, {});
+
+        const row = store.select('oper', {
+            data: {
+                id: 1,
+                data: {
+                    name: 1,
+                    books: [undefined, {
+                        title: 1,
+                        price: 1,
+                    }],
+                },
+            },
+            filter: {
+                data: {
+                    name: 'xc',
+                }
+            }
+        }, context, {});
+        const row2 = store.select('oper', {
+            data: {
+                id: 1,
+                data: {
+                    name: 1,
+                    books: [undefined, {
+                        title: 1,
+                        price: 1,
+                    }],
+                },
+            },
+            filter: {
+                data: {
+                    name: 'xc2',
+                }
+            }
+        }, context, {});
+
+        context.commit();
+        // console.log(JSON.stringify(row));
+        assert (row.length === 1);
+        assert (row2.length === 0);
+    });
+
+    it('[1.12]complicated json filter', () => {
+        const store = new FrontendStore(storageSchema);
+        const context = new FrontendRuntimeContext(store);
+        context.begin();
+
+        const id = generateNewId();
+        store.operate('oper', {
+            id: generateNewId(),
+            action: 'create',
+            data: {
+                id,
+                action: 'test',
+                data: {
+                    name: 'xc',
+                    price: [100, 400, 1000],
+                },
+                targetEntity: 'bbb',
+            }
+        }, context, {});
+
+        const row = store.select('oper', {
+            data: {
+                id: 1,
+                data: {
+                    name: 1,
+                    price: 1,
+                },
+            },
+            filter: {
+                id,
+                data: {
+                    price: [undefined, 400],
+                }
+            }
+        }, context, {});
+
+        const row2 = store.select('oper', {
+            data: {
+                id: 1,
+                data: {
+                    name: 1,
+                    price: 1,
+                },
+            },
+            filter: {
+                id,
+                data: {
+                    price: [undefined, 200],
+                }
+            }
+        }, context, {});
+
+        const row3 = store.select('oper', {
+            data: {
+                id: 1,
+                data: {
+                    name: 1,
+                    price: 1,
+                },
+            },
+            filter: {
+                id,
+                data: {
+                    price: [undefined, {
+                        $gt: 300,
+                    }],
+                }
+            }
+        }, context, {});
+
+        const row4 = store.select('oper', {
+            data: {
+                id: 1,
+                data: {
+                    name: 1,
+                    price: 1,
+                },
+            },
+            filter: {
+                id,
+                data: {
+                    price: {
+                        $contains: [200, 500],
+                    },
+                }
+            }
+        }, context, {});
+
+        const row5 = store.select('oper', {
+            data: {
+                id: 1,
+                data: {
+                    name: 1,
+                    price: 1,
+                },
+            },
+            filter: {
+                id,
+                data: {
+                    price: {
+                        $contains: [100, 400],
+                    },
+                }
+            }
+        }, context, {});
+
+        const row6 = store.select('oper', {
+            data: {
+                id: 1,
+                data: {
+                    name: 1,
+                    price: 1,
+                },
+            },
+            filter: {
+                id,
+                data: {
+                    price: {
+                        $contains: ['xc'],
+                    },
+                }
+            }
+        }, context, {});
+
+        const row7 = store.select('oper', {
+            data: {
+                id: 1,
+                data: {
+                    name: 1,
+                    price: 1,
+                },
+            },
+            filter: {
+                id,
+                data: {
+                    name: {
+                        $includes: 'xc',
+                    },
+                    price: {
+                        $overlaps: [200, 400, 800],
+                    },
+                }
+            }
+        }, context, {});
+
+        context.commit();
+        assert(row.length === 1);
+        assert(row2.length === 0);
+        assert(row3.length === 1);
+        assert(row4.length === 0);
+        assert(row5.length === 1);
+        assert(row6.length === 0);
+        assert(row7.length === 1);
+        // console.log(JSON.stringify(row7));
+    });
 });
 
