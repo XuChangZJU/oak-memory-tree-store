@@ -509,18 +509,18 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             }
             case '$contains': {
                 // json中的多值查询
-                assert(value instanceof Array);
+                const array = value instanceof Array ? value : [value];
                 return (row) => {
                     const data = get(row, path);
-                    return difference(value, data).length === 0 || obscurePass(data, option);
+                    return difference(array, data).length === 0 || obscurePass(data, option);
                 };
             }
             case '$overlaps': {
                 // json中的多值查询
-                assert(value instanceof Array);
+                const array = value instanceof Array ? value : [value];
                 return (row) => {
                     const data = get(row, path);
-                    return intersection(value, data).length > 0 || obscurePass(data, option);
+                    return intersection(array, data).length > 0 || obscurePass(data, option);
                 };                
             }
             default: {
