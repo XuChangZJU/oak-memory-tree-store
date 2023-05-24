@@ -609,8 +609,9 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                         }
                         else {
                             // 这里只有当子查询中的filter不包含引用外部的子查询时才可以提前计算，否则必须等到执行时再计算
+                            // 子查询查询的行不用返回，和数据库的行为保持一致
                             try {
-                                const legalSets = (this.selectAbjointRow(inData.entity, inData, context, option)).map(
+                                const legalSets = (this.selectAbjointRow(inData.entity, inData, context, { dontCollect: true })).map(
                                     (ele) => {
                                         const { data } = inData;
                                         const key = Object.keys(data)[0];
@@ -653,8 +654,9 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     else {
                         // obscure对nin没有影响，如果返回的子查询结果中包含此行就一定是false，否则一定为true（obscure只考虑数据不完整，不考虑不准确），但若相应属性为undefined则任然可以认为true
                         // 这里只有当子查询中的filter不包含引用外部的子查询时才可以提前计算，否则必须等到执行时再计算
+                        // 子查询查询的行不用返回，和数据库的行为保持一致
                         try {
-                            const legalSets = this.selectAbjointRow(inData.entity, inData, context, option).map(
+                            const legalSets = this.selectAbjointRow(inData.entity, inData, context, { dontCollect: true }).map(
                                 (ele) => {
                                     const { data } = inData as ED[keyof ED]['Selection'];
                                     const key = Object.keys(data)[0];
