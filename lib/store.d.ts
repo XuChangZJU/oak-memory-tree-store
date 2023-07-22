@@ -51,10 +51,10 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
     private translateAttribute;
     private translateFilter;
     private translateSorter;
-    protected selectAbjointRow<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(entity: T, selection: ED[T]['Selection'], context: Cxt, option?: OP): Partial<ED[T]['Schema']>[];
-    protected updateAbjointRow<T extends keyof ED, OP extends TreeStoreOperateOption, Cxt extends Context>(entity: T, operation: ED[T]['CreateSingle'] | ED[T]['Update'] | ED[T]['Remove'], context: Cxt, option?: OP): number;
-    protected selectAbjointRowAsync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(entity: T, selection: ED[T]['Selection'], context: Cxt, option?: OP): Promise<Partial<ED[T]["Schema"]>[]>;
-    protected updateAbjointRowAsync<T extends keyof ED, OP extends TreeStoreOperateOption, Cxt extends Context>(entity: T, operation: ED[T]['CreateSingle'] | ED[T]['Update'] | ED[T]['Remove'], context: Cxt, option?: OP): Promise<number>;
+    protected selectAbjointRow<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(entity: T, selection: ED[T]['Selection'], context: Cxt, option: OP): Partial<ED[T]['Schema']>[];
+    protected updateAbjointRow<T extends keyof ED, OP extends TreeStoreOperateOption, Cxt extends Context>(entity: T, operation: ED[T]['CreateSingle'] | ED[T]['Update'] | ED[T]['Remove'], context: Cxt, option: OP): number;
+    protected selectAbjointRowAsync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(entity: T, selection: ED[T]['Selection'], context: Cxt, option: OP): Promise<Partial<ED[T]["Schema"]>[]>;
+    protected updateAbjointRowAsync<T extends keyof ED, OP extends TreeStoreOperateOption, Cxt extends Context>(entity: T, operation: ED[T]['CreateSingle'] | ED[T]['Update'] | ED[T]['Remove'], context: Cxt, option: OP): Promise<number>;
     protected operateSync<T extends keyof ED, OP extends TreeStoreOperateOption, Cxt extends SyncContext<ED>>(entity: T, operation: ED[T]['Operation'], context: Cxt, option: OP): OperationResult<ED>;
     protected operateAsync<T extends keyof ED, OP extends TreeStoreOperateOption, Cxt extends AsyncContext<ED>>(entity: T, operation: ED[T]['Operation'], context: Cxt, option: OP): Promise<OperationResult<ED>>;
     /**

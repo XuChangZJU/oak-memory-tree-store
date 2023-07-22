@@ -820,7 +820,8 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     if (option?.obscure) {
                         // 如果是obscure，则返回的集合中有没有都不能否决“可能有”或“并不全部是”，所以可以直接返回true
                         if (['in', 'not all'].includes(predicate)) {
-                            return () => true;
+                            fns.push(() => true);
+                            continue;
                         }
                     }
                     const fk = otmForeignKey || 'entityId';
@@ -840,7 +841,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                             }
                         );
 
-                        return (node) => {
+                        fns.push((node) => {
                             const row = this.constructRow(node, context, option);
                             if (!row) {
                                 return false;
@@ -866,11 +867,11 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                                     throw new Error(`illegal sqp: ${predicate}`);
                                 }
                             }
-                        };
+                        });
                     }
                     catch (err) {
                         if (err instanceof OakExpressionUnresolvedException) {
-                            return (node, nodeDict) => {
+                            fns.push((node, nodeDict) => {
                                 const row = this.constructRow(node, context, option);
                                 if (!row) {
                                     return false;
@@ -905,7 +906,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                                         throw new Error(`illegal sqp: ${predicate}`);
                                     }
                                 }
-                            }
+                            });
                         }
                         else {
                             throw err;
@@ -1045,9 +1046,6 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         context: Cxt,
         option: OP): Partial<ED[T]['Schema']>[] {
         const { filter } = selection;
-        if (!option.nodeDict) {
-            option.nodeDict = {};
-        }
         const nodeDict = option?.nodeDict;
 
         const filterFn = filter && this.translateFilter(entity, filter!, context, option);
@@ -1060,14 +1058,18 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             }
             assert(!n.$txnId || n.$txnId === context.getCurrentTxnId());
             const exprResolveFns: Array<ExprResolveFn> = [];
+            const nodeDict2: NodeDict = {};
+            if (nodeDict) {
+                Object.assign(nodeDict2, nodeDict);
+            }
 
             // 如果没有filterFn，要保证行不为null(本事务remove的case)
-            if (filterFn ? filterFn(n, option.nodeDict!, exprResolveFns) : this.constructRow(n, context, option)) {
+            if (filterFn ? filterFn(n, nodeDict2, exprResolveFns) : this.constructRow(n, context, option)) {
                 // 如果有延时处理的expression，在这里加以判断，此时所有在filter中的node应该都已经加以遍历了
                 let exprResult = true;
                 if (exprResolveFns.length > 0) {
                     for (const fn of exprResolveFns) {
-                        const result = fn(option.nodeDict!);
+                        const result = fn(nodeDict2);
                         if (typeof result === 'function') {
                             throw new OakExpressionUnresolvedException();
                         }
