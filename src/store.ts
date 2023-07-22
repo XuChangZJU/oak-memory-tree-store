@@ -1043,8 +1043,11 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         entity: T,
         selection: ED[T]['Selection'],
         context: Cxt,
-        option?: OP): Partial<ED[T]['Schema']>[] {
+        option: OP): Partial<ED[T]['Schema']>[] {
         const { filter } = selection;
+        if (!option.nodeDict) {
+            option.nodeDict = {};
+        }
         const nodeDict = option?.nodeDict;
 
         const filterFn = filter && this.translateFilter(entity, filter!, context, option);
@@ -1056,19 +1059,15 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 continue;
             }
             assert(!n.$txnId || n.$txnId === context.getCurrentTxnId());
-            const nodeDict2: NodeDict = {};
-            if (nodeDict) {
-                Object.assign(nodeDict2, nodeDict);
-            }
             const exprResolveFns: Array<ExprResolveFn> = [];
 
             // 如果没有filterFn，要保证行不为null(本事务remove的case)
-            if (filterFn ? filterFn(n, nodeDict2, exprResolveFns) : this.constructRow(n, context, option)) {
+            if (filterFn ? filterFn(n, option.nodeDict!, exprResolveFns) : this.constructRow(n, context, option)) {
                 // 如果有延时处理的expression，在这里加以判断，此时所有在filter中的node应该都已经加以遍历了
                 let exprResult = true;
                 if (exprResolveFns.length > 0) {
                     for (const fn of exprResolveFns) {
-                        const result = fn(nodeDict2);
+                        const result = fn(option.nodeDict!);
                         if (typeof result === 'function') {
                             throw new OakExpressionUnresolvedException();
                         }
@@ -1095,7 +1094,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         entity: T,
         operation: ED[T]['CreateSingle'] | ED[T]['Update'] | ED[T]['Remove'],
         context: Cxt,
-        option?: OP): number {
+        option: OP): number {
         const { data, action, id: operId } = operation;
 
         switch (action) {
@@ -1139,7 +1138,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     indexFrom: operation.indexFrom,
                     count: operation.count,
                 };
-                const rows = this.selectAbjointRow(entity, selection, context);
+                const rows = this.selectAbjointRow(entity, selection, context, { dontCollect: true });
 
                 const ids = rows.map(ele => ele.id);
                 for (const id of ids) {
@@ -1179,7 +1178,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         entity: T,
         selection: ED[T]['Selection'],
         context: Cxt,
-        option?: OP) {
+        option: OP) {
         return this.selectAbjointRow(entity, selection, context, option);
     }
 
@@ -1187,7 +1186,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         entity: T,
         operation: ED[T]['CreateSingle'] | ED[T]['Update'] | ED[T]['Remove'],
         context: Cxt,
-        option?: OP) {
+        option: OP) {
         return this.updateAbjointRow(entity, operation, context, option);
     }
 
