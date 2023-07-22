@@ -5,7 +5,7 @@ import {
     UpdateOpResult, RemoveOpResult, SelectOpResult,
     EntityDict, SelectOption, DeleteAtAttribute, AggregationResult, AggregationOp, CreateAtAttribute, UpdateAtAttribute
 } from "oak-domain/lib/types/Entity";
-import { ExpressionKey, EXPRESSION_PREFIX, NodeId, RefAttr } from 'oak-domain/lib/types/Demand';
+import { ExpressionKey, EXPRESSION_PREFIX, NodeId, RefAttr, SUB_QUERY_PREDICATE_KEYWORD, SubQueryPredicateMetadata } from 'oak-domain/lib/types/Demand';
 import { OakCongruentRowExists, OakException, OakRowUnexistedException } from 'oak-domain/lib/types/Exception';
 import { EntityDict as BaseEntityDict } from 'oak-domain/lib/base-app-domain';
 import { StorageSchema } from 'oak-domain/lib/types/Storage';
@@ -139,7 +139,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                         $$seq$$: `${Math.ceil((Math.random() + 1000) * 100)}`,
                     });
                 }
-                assert(row.id);
+                assert(row.id && !row.id.includes('.'));
                 set(this.store, `${entity}.${row.id}.$current`, row);
             }
         }
@@ -601,6 +601,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             const predicate = Object.keys(filter)[0];
             if (predicate.startsWith('$')) {
                 if (['$in', '$nin'].includes(predicate) && !((filter as Record<string, any>)[predicate] instanceof Array)) {
+                    throw new Error('子查询已经改用一对多的外键连接方式');
                     const inData = (filter as Record<string, any>)[predicate];
                     if (predicate === '$in') {
                         // 如果是obscure，则返回的集合中有没有都不能否决“可能有”，所以可以直接返回true
@@ -810,6 +811,106 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                             return false;
                         }
                     );
+                }
+                else if (relation instanceof Array) {
+                    // 一对多的子查询
+                    const [ otmEntity, otmForeignKey ] = relation;
+                    const predicate: NonNullable<SubQueryPredicateMetadata['#sqp']> = filter[attr][SUB_QUERY_PREDICATE_KEYWORD] || 'in';
+
+                    if (option?.obscure) {
+                        // 如果是obscure，则返回的集合中有没有都不能否决“可能有”或“并不全部是”，所以可以直接返回true
+                        if (['in', 'not all'].includes(predicate)) {
+                            return () => true;
+                        }
+                    }
+                    const fk = otmForeignKey || 'entityId';
+                    const otmProjection = {
+                        [fk]: 1,
+                    };
+                    const otmFilter = !otmForeignKey ? Object.assign({
+                        entity,
+                    }, filter[attr]) : filter[attr];
+                    try {
+                        const subQuerySet = (this.selectAbjointRow(otmEntity, {
+                            data: otmProjection,
+                            filter: otmFilter,
+                        }, context, { dontCollect: true })).map(
+                            (ele) => {
+                                return (ele)[fk] as string | null;
+                            }
+                        );
+
+                        return (node) => {
+                            const row = this.constructRow(node, context, option);
+                            if (!row) {
+                                return false;
+                            }
+                            switch (predicate) {
+                                case 'in': {
+                                    return subQuerySet.includes(row.id);
+                                }
+                                case 'not in': {
+                                    return !subQuerySet.includes(row.id);
+                                }
+                                case 'all': {
+                                    return !subQuerySet.find(
+                                        ele => ele !== row.id
+                                    );
+                                }
+                                case 'not all': {
+                                    return !!subQuerySet.find(
+                                        ele => ele !== row.id
+                                    );
+                                }
+                                default: {
+                                    throw new Error(`illegal sqp: ${predicate}`);
+                                }
+                            }
+                        };
+                    }
+                    catch (err) {
+                        if (err instanceof OakExpressionUnresolvedException) {
+                            return (node, nodeDict) => {
+                                const row = this.constructRow(node, context, option);
+                                if (!row) {
+                                    return false;
+                                }
+                                const option2 = Object.assign({}, option, { nodeDict, dontCollect: true  });
+                                const subQuerySet = (this.selectAbjointRow(otmEntity, {
+                                    data: otmProjection,
+                                    filter: otmFilter,
+                                }, context, option2)).map(
+                                    (ele) => {
+                                        return (ele)[fk] as string | null;
+                                    }
+                                );
+                                switch (predicate) {
+                                    case 'in': {
+                                        return subQuerySet.includes(row.id);
+                                    }
+                                    case 'not in': {
+                                        return !subQuerySet.includes(row.id);
+                                    }
+                                    case 'all': {
+                                        return !subQuerySet.find(
+                                            ele => ele !== row.id
+                                        );
+                                    }
+                                    case 'not all': {
+                                        return !!subQuerySet.find(
+                                            ele => ele !== row.id
+                                        );
+                                    }
+                                    default: {
+                                        throw new Error(`illegal sqp: ${predicate}`);
+                                    }
+                                }
+                            }
+                        }
+                        else {
+                            throw err;
+                        }
+                    }                    
                 }
                 else {
                     // metadata

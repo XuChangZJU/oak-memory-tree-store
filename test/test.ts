@@ -124,7 +124,7 @@ describe('基础测试', function () {
 
         /**
          * 这个子查询没有跨结点的表达式，所以应该可以提前计算子查询的值
-         * 这个可以跟一下store.ts中translateAttribute函数里$in的分支代码
+         * 这个可以跟一下store.ts中translateFilter函数里子查询的分支代码
          * by Xc
          */
         const rows = store.select('modi', {
@@ -134,17 +134,9 @@ describe('基础测试', function () {
                 entity: 1,
             },
             filter: {
-                id: {
-                    $in: {
-                        entity: 'modiEntity',
-                        data: {
-                            modiId: 1,
-                        },
-                        filter: {
-                            entity: 'user',
-                            entityId: 'user-id-1',
-                        }
-                    },
+                modiEntity$modi: {
+                    entity: 'user',
+                    entityId: 'user-id-1',
                 }
             },
         }, context, {});
@@ -347,27 +339,20 @@ describe('基础测试', function () {
             },
             filter: {
                 "#id": 'node-1',
-                id: {
-                    $nin: {
-                        entity: 'modiEntity',
-                        data: {
-                            modiId: 1,
-                        },
-                        filter: {
-                            $expr: {
-                                $eq: [
-                                    {
-                                        "#attr": 'entity',
-                                    },
-                                    {
-                                        '#refId': 'node-1',
-                                        "#refAttr": 'entity',
-                                    }
-                                ]
+                modiEntity$modi: {
+                    $expr: {
+                        $eq: [
+                            {
+                                "#attr": 'entity',
                             },
-                            '#id': 'node-2',
-                        }
+                            {
+                                '#refId': 'node-1',
+                                "#refAttr": 'entity',
+                            }
+                        ]
                     },
+                    '#id': 'node-2',
+                    '#sqp': 'not in',
                 }
             },
             sorter: [
