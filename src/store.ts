@@ -1195,12 +1195,12 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
 
     protected operateSync<T extends keyof ED, OP extends TreeStoreOperateOption, Cxt extends SyncContext<ED>>(entity: T, operation: ED[T]['Operation'], context: Cxt, option: OP): OperationResult<ED> {
         assert(context.getCurrentTxnId());
-        return this.cascadeUpdate(entity, operation, context, option);
+        return super.operateSync(entity, operation, context, option);
     }
 
     protected async operateAsync<T extends keyof ED, OP extends TreeStoreOperateOption, Cxt extends AsyncContext<ED>>(entity: T, operation: ED[T]['Operation'], context: Cxt, option: OP) {
         assert(context.getCurrentTxnId());
-        return this.cascadeUpdateAsync(entity, operation, context, option);
+        return super.operateAsync(entity, operation, context, option);
     }
 
     /**
@@ -1594,7 +1594,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         context: Cxt,
         option: OP): Partial<ED[T]['Schema']>[] {
         assert(context.getCurrentTxnId());
-        const result = this.cascadeSelect(entity, selection, context, option);
+        const result = super.selectSync(entity, selection, context, option);
         // 在这里再计算所有的表达式
         result.forEach(
             (ele) => this.formExprInResult(entity, selection.data, ele, {}, context)
@@ -1608,7 +1608,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         context: Cxt,
         option: OP) {
         assert(context.getCurrentTxnId());
-        const result = await this.cascadeSelectAsync(entity, selection, context, option);
+        const result = await super.selectAsync(entity, selection, context, option);
         // 在这里再计算所有的表达式
         result.forEach(
             (ele) => this.formExprInResult(entity, selection.data, ele, {}, context)
