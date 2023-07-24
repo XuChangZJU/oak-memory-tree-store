@@ -1394,10 +1394,22 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     }
                 }
             }
-            if (row.$$deleteAt$$) {
+            // 这三个属性在前台cache中可能表达特殊语义的，需要返回
+            if (row[DeleteAtAttribute]) {
                 Object.assign(result, {
-                    [DeleteAtAttribute]: row.$$deleteAt$$,
-                })
+                    [DeleteAtAttribute]: row[DeleteAtAttribute],
+                });
+            }
+            if (row[UpdateAtAttribute]) {
+                Object.assign(result, {
+                    [UpdateAtAttribute]: row[UpdateAtAttribute],
+                });
+            }
+            if (row[CreateAtAttribute]) {
+                Object.assign(result, {
+                    [CreateAtAttribute]: row[CreateAtAttribute],
+                });
+
             }
             rows2.push(result);
         }
