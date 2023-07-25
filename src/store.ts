@@ -433,7 +433,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     const data = get(row, path);
                     return data < value || obscurePass(data, option);
                 };
-            }case '$gte': {
+            } case '$gte': {
                 return (row) => {
                     const data = get(row, path);
                     return data >= value || obscurePass(data, option);
@@ -460,7 +460,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             case '$between': {
                 return (row) => {
                     const data = get(row, path);
-                    return data  >= value[0] &&  data <= value[1]|| obscurePass(data, option);
+                    return data >= value[0] && data <= value[1] || obscurePass(data, option);
                 };
             }
             case '$startsWith': {
@@ -521,7 +521,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 return (row) => {
                     const data = get(row, path);
                     return intersection(array, data).length > 0 || obscurePass(data, option);
-                };                
+                };
             }
             default: {
                 throw new Error(`predicate ${predicate} is not recoganized`);
@@ -704,7 +704,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                             return false;
                         }
                         return fn(row);
-                    }; 
+                    };
                 }
             }
             else {
@@ -718,7 +718,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     }
                     return fn((row as any)[attr]) || obscurePassLocal(row);
                 }
-            }        
+            }
         }
     }
 
@@ -814,7 +814,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 }
                 else if (relation instanceof Array) {
                     // 一对多的子查询
-                    const [ otmEntity, otmForeignKey ] = relation;
+                    const [otmEntity, otmForeignKey] = relation;
                     const predicate: NonNullable<SubQueryPredicateMetadata['#sqp']> = filter[attr][SUB_QUERY_PREDICATE_KEYWORD] || 'in';
 
                     if (option?.obscure) {
@@ -828,79 +828,108 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     const otmProjection = {
                         [fk]: 1,
                     };
-                    const otmFilter = !otmForeignKey ? Object.assign({
-                        entity,
-                    }, filter[attr]) : filter[attr];
-                    try {
-                        const subQuerySet = (this.selectAbjointRow(otmEntity, {
-                            data: otmProjection,
-                            filter: otmFilter,
-                        }, context, { dontCollect: true })).map(
-                            (ele) => {
-                                return (ele)[fk] as string | null;
-                            }
-                        );
-
-                        fns.push((node) => {
+                    /**
+                     * in代表外键连接后至少有一行数据
+                     * not in代表外键连接后一行也不能有
+                     * all代表反外键连接条件的一行也不能有（符合的是否至少要有一行？直觉上没这个限制）
+                     * not all 代表反外键连接条件的至少有一行
+                     * 
+                     * 此时还没有确定父行，只有查询中明确带有id的查询可以先执行，否则不执行，暂先这个逻辑 by Xc 20230725
+                     */
+                    const makeAfterLogic = () => {
+                        fns.push((node, nodeDict) => {
                             const row = this.constructRow(node, context, option);
                             if (!row) {
                                 return false;
                             }
+                            /**
+                             * in代表外键连接后至少有一行数据
+                             * not in代表外键连接后一行也不能有
+                             * all代表反外键连接条件的一行也不能有（符合的是否至少要有一行？直觉上没这个限制）
+                             * not all 代表反外键连接条件的至少有一行
+                             */
+                            const otmFilter = !otmForeignKey ? Object.assign({
+                                entity,
+                            }, filter[attr]) : cloneDeep(filter[attr]);
+                            if (['not in', 'in'].includes(predicate)) {
+                                Object.assign(otmFilter, {
+                                    [fk]: row.id,
+                                });
+                            }
+                            else {
+                                Object.assign(otmFilter, {
+                                    [fk]: {
+                                        $ne: row.id,
+                                    }
+                                });
+                            }
+                            const option2 = Object.assign({}, option, { nodeDict, dontCollect: true });
+                            const subQuerySet = (this.selectAbjointRow(otmEntity, {
+                                data: otmProjection,
+                                filter: otmFilter,
+                                indexFrom: 0,
+                                count: 1,
+                            }, context, option2)).map(
+                                (ele) => {
+                                    return (ele)[fk] as string | null;
+                                }
+                            );
                             switch (predicate) {
-                                case 'in': {
-                                    return subQuerySet.includes(row.id);
-                                }
-                                case 'not in': {
-                                    return !subQuerySet.includes(row.id);
-                                }
-                                case 'all': {
-                                    return !subQuerySet.find(
-                                        ele => ele !== row.id
-                                    );
-                                }
+                                case 'in':
                                 case 'not all': {
-                                    return !!subQuerySet.find(
-                                        ele => ele !== row.id
-                                    );
+                                    return subQuerySet.length > 0;
+                                }
+                                case 'not in':
+                                case 'all': {
+                                    return subQuerySet.length === 0;
                                 }
                                 default: {
                                     throw new Error(`illegal sqp: ${predicate}`);
                                 }
                             }
                         });
-                    }
-                    catch (err) {
-                        if (err instanceof OakExpressionUnresolvedException) {
-                            fns.push((node, nodeDict) => {
+                    };
+                    if (filter.id && typeof filter.id === 'string') {
+                        const otmFilter = !otmForeignKey ? Object.assign({
+                            entity,
+                        }, filter[attr]) : cloneDeep(filter[attr]);
+                        if (['not in', 'in'].includes(predicate)) {
+                            Object.assign(otmFilter, {
+                                [fk]: filter.id,
+                            });
+                        }
+                        else {    
+                            Object.assign(otmFilter, {
+                                [fk]: {
+                                    $ne: filter.id,
+                                }
+                            });
+                        }
+                        try {
+                            const subQuerySet = (this.selectAbjointRow(otmEntity, {
+                                data: otmProjection,
+                                filter: otmFilter,
+                                indexFrom: 0,
+                                count: 1,
+                            }, context, { dontCollect: true })).map(
+                                (ele) => {
+                                    return (ele)[fk] as string | null;
+                                }
+                            );
+    
+                            fns.push((node) => {
                                 const row = this.constructRow(node, context, option);
                                 if (!row) {
                                     return false;
                                 }
-                                const option2 = Object.assign({}, option, { nodeDict, dontCollect: true  });
-                                const subQuerySet = (this.selectAbjointRow(otmEntity, {
-                                    data: otmProjection,
-                                    filter: otmFilter,
-                                }, context, option2)).map(
-                                    (ele) => {
-                                        return (ele)[fk] as string | null;
-                                    }
-                                );
                                 switch (predicate) {
-                                    case 'in': {
-                                        return subQuerySet.includes(row.id);
-                                    }
-                                    case 'not in': {
-                                        return !subQuerySet.includes(row.id);
-                                    }
-                                    case 'all': {
-                                        return !subQuerySet.find(
-                                            ele => ele !== row.id
-                                        );
-                                    }
+                                    case 'in':
                                     case 'not all': {
-                                        return !!subQuerySet.find(
-                                            ele => ele !== row.id
-                                        );
+                                        return subQuerySet.length > 0;
+                                    }
+                                    case 'not in':
+                                    case 'all': {
+                                        return subQuerySet.length === 0;
                                     }
                                     default: {
                                         throw new Error(`illegal sqp: ${predicate}`);
@@ -908,10 +937,18 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                                 }
                             });
                         }
-                        else {
-                            throw err;
+                        catch (err) {
+                            if (err instanceof OakExpressionUnresolvedException) {
+                                makeAfterLogic();
+                            }
+                            else {
+                                throw err;
+                            }
                         }
-                    }                    
+                    }
+                    else {
+                        makeAfterLogic();
+                    }
                 }
                 else {
                     // metadata
