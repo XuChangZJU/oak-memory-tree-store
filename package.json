@@ -1,6 +1,6 @@
 {
     "name": "oak-memory-tree-store",
-    "version": "2.2.5",
+    "version": "2.2.6",
     "description": "oak框架中内存级store的实现",
     "author": {
         "name": "XuChang"
