@@ -425,60 +425,60 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             case '$gt': {
                 return (row) => {
                     const data = get(row, path);
-                    return data > value || obscurePass(data, option);
+                    return ['number', 'string'].includes(typeof data) && data > value || obscurePass(data, option);
                 };
             }
             case '$lt': {
                 return (row) => {
                     const data = get(row, path);
-                    return data < value || obscurePass(data, option);
+                    return ['number', 'string'].includes(typeof data) && data < value || obscurePass(data, option);
                 };
             } case '$gte': {
                 return (row) => {
                     const data = get(row, path);
-                    return data >= value || obscurePass(data, option);
+                    return ['number', 'string'].includes(typeof data) && data >= value || obscurePass(data, option);
                 };
             }
             case '$lte': {
                 return (row) => {
                     const data = get(row, path);
-                    return data <= value || obscurePass(data, option);
+                    return ['number', 'string'].includes(typeof data) && data <= value || obscurePass(data, option);
                 };
             }
             case '$eq': {
                 return (row) => {
                     const data = get(row, path);
-                    return data === value || obscurePass(data, option);
+                    return ['number', 'string'].includes(typeof data) && data === value || obscurePass(data, option);
                 };
             }
             case '$ne': {
                 return (row) => {
                     const data = get(row, path);
-                    return data !== value || obscurePass(data, option);
+                    return ['number', 'string'].includes(typeof data) && data !== value || obscurePass(data, option);
                 };
             }
             case '$between': {
                 return (row) => {
                     const data = get(row, path);
-                    return data >= value[0] && data <= value[1] || obscurePass(data, option);
+                    return ['number', 'string'].includes(typeof data) && data >= value[0] && data <= value[1] || obscurePass(data, option);
                 };
             }
             case '$startsWith': {
                 return (row) => {
                     const data = get(row, path);
-                    return data.startsWith(value) || obscurePass(data, option);
+                    return ['string'].includes(typeof data) && data.startsWith(value) || obscurePass(data, option);
                 };
             }
             case '$endsWith': {
                 return (row) => {
                     const data = get(row, path);
-                    return data.endsWith(value) || obscurePass(data, option);
+                    return ['string'].includes(typeof data) && data.endsWith(value) || obscurePass(data, option);
                 };
             }
             case '$includes': {
                 return (row) => {
                     const data = get(row, path);
-                    return data.includes(value) || obscurePass(data, option);
+                    return ['string'].includes(typeof data) && data.includes(value) || obscurePass(data, option);
                 };
             }
             case '$exists': {
