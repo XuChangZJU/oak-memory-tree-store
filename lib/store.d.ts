@@ -25,7 +25,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         remove: number;
         commit: number;
     }): void;
-    getCurrentData(): {
+    getCurrentData(keys?: (keyof ED)[]): {
         [T in keyof ED]?: ED[T]['OpSchema'][];
     };
     constructor(storageSchema: StorageSchema<ED>);
@@ -90,6 +90,9 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         commit: number;
     };
     beginSync(): string;
+    private commitCallbacks;
+    onCommit(callback: (result: OperationResult<ED>) => void): () => ((result: OperationResult<ED>) => void)[];
+    private addToOperationResult;
     commitSync(uuid: string): void;
     rollbackSync(uuid: string): void;
     beginAsync(): Promise<string>;

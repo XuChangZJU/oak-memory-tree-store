@@ -1,9 +1,9 @@
-import { cloneDeep, get, groupBy, set, unset, difference, intersection } from 'oak-domain/lib/utils/lodash';
+import { cloneDeep, get, groupBy, set, unset, difference, intersection, pull } from 'oak-domain/lib/utils/lodash';
 import { assert } from 'oak-domain/lib/utils/assert';
 import {
     EntityShape, OperationResult, OperateOption, OpRecord,
     UpdateOpResult, RemoveOpResult, SelectOpResult,
-    EntityDict, SelectOption, DeleteAtAttribute, AggregationResult, AggregationOp, CreateAtAttribute, UpdateAtAttribute
+    EntityDict, SelectOption, DeleteAtAttribute, AggregationResult, AggregationOp, CreateAtAttribute, UpdateAtAttribute, UpdateOperation
 } from "oak-domain/lib/types/Entity";
 import { ExpressionKey, EXPRESSION_PREFIX, NodeId, RefAttr, SUB_QUERY_PREDICATE_KEYWORD, SubQueryPredicateMetadata } from 'oak-domain/lib/types/Demand';
 import { OakCongruentRowExists, OakException, OakRowUnexistedException } from 'oak-domain/lib/types/Exception';
@@ -148,13 +148,16 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         }
     }
 
-    getCurrentData(): {
+    getCurrentData(keys?: (keyof ED)[]): {
         [T in keyof ED]?: ED[T]['OpSchema'][];
     } {
         const result: {
             [T in keyof ED]?: ED[T]['OpSchema'][];
         } = {};
         for (const entity in this.store) {
+            if (keys && !keys.includes(entity)) {
+                continue;
+            }
             result[entity] = [];
             for (const rowId in this.store[entity]) {
                 result[entity]?.push(this.store[entity]![rowId]!['$current']!);
@@ -1191,9 +1194,9 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                         assert(node.$txnId === context.getCurrentTxnId());
                         alreadyDirtyNode = true;
                     }
+                    node.$path = `${entity as string}.${id!}`;
                     if (action === 'remove') {
                         node.$next = null;
-                        node.$path = `${entity as string}.${id!}`;
                         if (!alreadyDirtyNode) {
                             // 如果已经更新过的结点就不能再加了，会形成循环
                             this.addToTxnNode(node, context, 'remove');
@@ -1793,15 +1796,53 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         return uuid;
     }
 
+    private commitCallbacks: Array<(result: OperationResult<ED>) => void> = [];
+
+    onCommit(callback: (result: OperationResult<ED>) => void) {
+        this.commitCallbacks.push(callback);
+        return () => pull(this.commitCallbacks, callback);
+    }
+
+    private addToOperationResult(result: OperationResult<ED>, entity: keyof ED, action: ED[keyof ED]['Action']) {
+        if (result[entity]) {
+            if (result[entity]![action]) {
+                result[entity]![action]! ++;
+            }
+            else {
+                Object.assign(result[entity]!, {
+                    [action]: 1,
+                });
+            }
+        }
+        else {
+            Object.assign(result, {
+                [entity]: {
+                    [action]: 1,
+                },
+            });
+        }
+    }
+
     commitSync(uuid: string) {
         assert(this.activeTxnDict.hasOwnProperty(uuid), uuid);
         let node = this.activeTxnDict[uuid].nodeHeader;
+
+        const result: OperationResult<ED> = {};
         while (node) {
             const node2 = node.$nextNode;
             if (node.$txnId === uuid) {
+                assert(node.$path);
+                const entity = node.$path?.split('.')[0]!;
                 if (node.$next) {
                     // create/update
                     node.$current = Object.assign(node.$current || {}, node.$next) as EntityShape;
+                    
+                    if (node.$current) {
+                        this.addToOperationResult(result, entity, 'create');
+                    }
+                    else {
+                        this.addToOperationResult(result, entity, 'update');
+                    }
                     unset(node, '$txnId');
                     unset(node, '$next');
                     unset(node, '$path');
@@ -1809,7 +1850,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 }
                 else {
                     // remove
-                    assert(node.$path);
+                    this.addToOperationResult(result, entity, 'remove');
                     unset(this.store, node.$path);
                     unset(node, '$txnId');
                 }
@@ -1832,6 +1873,10 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         }
 
         unset(this.activeTxnDict, uuid);
+
+        this.commitCallbacks.forEach(
+            callback => callback(result)
+        );
     }
 
     rollbackSync(uuid: string) {
@@ -1885,6 +1930,8 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             dontCollect: true,
             dontCreateOper: true,
         });
+
+        const result: OperationResult<ED> = {};
         for (const record of opRecords) {
             switch (record.a) {
                 case 'c': {
@@ -1899,7 +1946,8 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                                     filter: {
                                         id: dd.id,
                                     } as any,
-                                }, context, option2)
+                                }, context, option2);
+                                this.addToOperationResult(result, e, 'update');
                             }
                             else {
                                 this.updateAbjointRow(e, {
@@ -1907,6 +1955,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                                     action: 'create',
                                     data: dd,
                                 }, context, option2);
+                                this.addToOperationResult(result, e, 'create');
                             }
                         }
                     }
@@ -1920,6 +1969,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                                     id: d.id,
                                 } as any,
                             }, context, option2);
+                            this.addToOperationResult(result, e, 'update');
                         }
                         else {
                             this.updateAbjointRow(e, {
@@ -1927,6 +1977,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                                 action: 'create',
                                 data: d,
                             }, context, option2);
+                            this.addToOperationResult(result, e, 'create');
                         }
                     }
                     break;
@@ -1939,6 +1990,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                         data: d,
                         filter: f,
                     }, context, option2);
+                    this.addToOperationResult(result, e, 'update');
                     break;
                 }
                 case 'r': {
@@ -1949,6 +2001,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                         data: {},
                         filter: f,
                     }, context, option2);
+                    this.addToOperationResult(result, e, 'remove');
                     break;
                 }
                 case 's': {
@@ -1964,6 +2017,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                                         id,
                                     } as any,
                                 }, context, option2);
+                                this.addToOperationResult(result, entity, 'update');
                             }
                             else {
                                 this.updateAbjointRow(entity, {
@@ -1971,6 +2025,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                                     action: 'create',
                                     data: d[entity]![id],
                                 } as ED[keyof ED]['CreateSingle'], context, option2);
+                                this.addToOperationResult(result, entity, 'create');
                             }
                         }
                     }
@@ -1981,5 +2036,9 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 }
             }
         }
+
+        this.commitCallbacks.forEach(
+            callback => callback(result)
+        );
     }
 }
