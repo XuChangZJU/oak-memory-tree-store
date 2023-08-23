@@ -1,6 +1,6 @@
 {
     "name": "oak-memory-tree-store",
-    "version": "2.2.6",
+    "version": "3.0.0",
     "description": "oak框架中内存级store的实现",
     "author": {
         "name": "XuChang"
@@ -9,7 +9,7 @@
         "lib/**/*"
     ],
     "dependencies": {
-        "oak-domain": "file:../oak-domain",
+        "oak-domain": "^3.0.0",
         "uuid": "^8.3.2"
     },
     "scripts": {
