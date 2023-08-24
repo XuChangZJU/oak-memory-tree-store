@@ -30,6 +30,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
     };
     constructor(storageSchema: StorageSchema<ED>);
     private constructRow;
+    private testFilterFns;
     private translateLogicFilter;
     /**
      * 对表达式中某个结点的翻译，有三种情况：
@@ -49,6 +50,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
     private translatePredicate;
     private translateObjectPredicate;
     private translateAttribute;
+    private translateFilterInner;
     private translateFilter;
     private translateSorter;
     protected selectAbjointRow<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(entity: T, selection: ED[T]['Selection'], context: Cxt, option: OP): Partial<ED[T]['Schema']>[];

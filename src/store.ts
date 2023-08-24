@@ -207,56 +207,138 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         return data;
     }
 
+    private testFilterFns(
+        node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>,
+        fns: {
+            self: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean>;
+            otm: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean>;
+            mto: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean>;
+        }
+    ) {
+        const { self, otm, mto } = fns;
+        // 三种filterFn是and的关系，有一个失败就返回false，优先判断顺序：self -> mto -> otm
+        for (const f of self) {
+            if (!f(node, nodeDict, exprResolveFns)) {
+                return false;
+            }
+        }
+
+        for (const f of mto) {
+            if (!f(node, nodeDict, exprResolveFns)) {
+                return false;
+            }
+        }
+
+        for (const f of otm) {
+            if (!f(node, nodeDict, exprResolveFns)) {
+                return false;
+            }            
+        }
+        return true;
+    }
+
     private translateLogicFilter<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(
         entity: T,
         filter: NonNullable<ED[T]['Selection']['filter']>,
         attr: string,
         context: Cxt,
-        option?: OP): (node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean {
+        option?: OP): {
+            self: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean>;
+            otm: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean>;
+            mto: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean>;
+        } {
+            
+        const self: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean> = [];
+        const otm: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean> = [];
+        const mto: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean> = [];
         switch (attr) {
             case '$and': {
-                const filters = filter[attr];
+                const filters = filter[attr] as NonNullable<ED[T]['Selection']['filter']>[];
                 const fns = filters!.map(
-                    (ele: NonNullable<ED[T]['Selection']['filter']>) => this.translateFilter(entity, ele, context, option)
+                    (ele) => this.translateFilterInner(entity, ele, context, option)
                 );
-                return (node, nodeDict, exprResolveFns) => {
-                    for (const fn of fns) {
-                        if (!fn(node, nodeDict, exprResolveFns)) {
-                            return false;
-                        }
-                    }
-                    return true;
-                };
+                self.push(...(fns.map(ele => ele.self).flat()));
+                otm.push(...(fns.map(ele => ele.otm).flat()));
+                mto.push(...(fns.map(ele => ele.mto).flat()));
+                break;
             }
             case '$or': {
-                const filters = filter[attr];
+                const filters = filter[attr] as NonNullable<ED[T]['Selection']['filter']>[];
                 const fns = filters!.map(
-                    (ele: NonNullable<ED[T]['Selection']['filter']>) => this.translateFilter(entity, ele, context, option)
+                    (ele: NonNullable<ED[T]['Selection']['filter']>) => this.translateFilterInner(entity, ele, context, option)
                 );
-                return (node, nodeDict, exprResolveFns) => {
+                /**
+                 * 对于or的情况，按最坏的一种判定来计算，同时对所有的判定也可以排序，先计算代价最轻的
+                 */
+                fns.sort(
+                    (ele1, ele2) => {
+                        if (ele2.mto.length > 0) {
+                            return -1;
+                        }
+                        else if (ele1.mto.length > 0) {
+                            return 1;
+                        }
+                        else if (ele2.otm.length > 0) {
+                            return -1;
+                        }
+                        else if (ele1.otm.length > 0) {
+                            return 1;
+                        }
+                        return 0;
+                    }
+                );
+                const fn = (node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => {
                     for (const fn of fns) {
-                        if (fn(node, nodeDict, exprResolveFns)) {
+                        if (this.testFilterFns(node, nodeDict, exprResolveFns, fn)) {
                             return true;
                         }
                     }
                     return false;
                 };
-
+                const last = fns[fns.length - 1];
+                if (last.mto.length > 0) {
+                    mto.push(fn);
+                }
+                else if (last.otm.length > 0) {
+                    otm.push(fn);
+                }
+                else {
+                    self.push(fn);
+                }
+                break;
             }
             case '$not': {
-                const filter2 = filter[attr];
-                const fn = this.translateFilter(entity, filter2!, context, option);
-                return (node, nodeDict, exprResolveFns) => {
-                    if (fn(node, nodeDict, exprResolveFns)) {
+                const filter2 = filter[attr] as NonNullable<ED[T]['Selection']['filter']>;
+                const filterFn = this.translateFilterInner(entity, filter2!, context, option);
+
+                const fn = (node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => {
+                    if (this.testFilterFns(node, nodeDict, exprResolveFns, filterFn)) {
                         return false;
                     }
                     return true;
+                };
+
+                if (filterFn.otm.length > 0) {
+                    otm.push(fn);
                 }
+                else if (filterFn.mto.length > 0) {
+                    mto.push(fn);
+                }
+                else {
+                    self.push(fn);
+                }
+                break;
             }
             default: {
                 assert(false, `${attr}算子暂不支持`);
             }
         }
+
+        return {
+            self,
+            otm,
+            mto,
+        };
     }
 
     /**
@@ -725,14 +807,21 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         }
     }
 
-    private translateFilter<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(
+    private translateFilterInner<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(
         entity: T,
         filter: ED[T]['Selection']['filter'],
         context: Cxt,
-        option?: OP): (node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean {
-        const fns: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean> = [];
+        option?: OP): {
+            self: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean>;
+            otm: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean>;
+            mto: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean>;
+            nodeId?: NodeId;
+        } {
+        const self: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean> = [];
+        const otm: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean> = [];
+        const mto: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean> = [];
 
-        let nodeId: NodeId;
+        let nodeId: NodeId | undefined;
         for (const attr in filter) {
             if (attr === '#id') {
                 nodeId = (filter as {
@@ -740,11 +829,15 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 })['#id'];
             }
             else if (['$and', '$or', '$xor', '$not'].includes(attr)) {
-                fns.push(this.translateLogicFilter(entity, filter!, attr, context, option));
+                const filterFns = this.translateLogicFilter(entity, filter!, attr, context, option);
+                self.push(...(filterFns.self));
+                otm.push(...(filterFns.otm));
+                mto.push(...(filterFns.mto));
             }
             else if (attr.toLowerCase().startsWith(EXPRESSION_PREFIX)) {
                 const fn = this.translateExpression(entity, (filter as any)[attr], context, option);
-                fns.push(
+                // expression上先假设大都是只查询自身和外层的属性，不一定对。by Xc 20230824
+                self.push(
                     (node, nodeDict, exprResolveFns) => {
                         const row = this.constructRow(node, context, option);
                         if (!row) {
@@ -759,7 +852,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 );
             }
             else if (attr.toLowerCase() === '$text') {
-                fns.push(this.translateFulltext(entity, (filter as any)[attr], context, option));
+                self.push(this.translateFulltext(entity, (filter as any)[attr], context, option));
             }
             else {
                 // 属性级过滤
@@ -767,12 +860,12 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
 
                 if (relation === 1) {
                     // 行本身的属性
-                    fns.push(this.translateAttribute(entity, (filter as any)[attr], attr, context, option));
+                    self.push(this.translateAttribute(entity, (filter as any)[attr], attr, context, option));
                 }
                 else if (relation === 2) {
                     // 基于entity/entityId的指针
-                    const fn = this.translateFilter(attr, (filter as any)[attr], context, option);
-                    fns.push(
+                    const filterFn = this.translateFilter(attr, (filter as any)[attr], context, option);
+                    mto.push(
                         (node, nodeDict, exprResolveFns) => {
                             const row = this.constructRow(node, context, option);
                             if (obscurePass((row as any).entity, option) || obscurePass((row as any).entityId, option)) {
@@ -788,14 +881,14 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                                 }
                                 return false;
                             }
-                            return fn(node2, nodeDict, exprResolveFns);
+                            return filterFn(node2, nodeDict, exprResolveFns);
                         }
                     );
                 }
                 else if (typeof relation === 'string') {
                     // 只能是基于普通属性的外键
-                    const fn = this.translateFilter(relation, (filter as any)[attr], context, option);
-                    fns.push(
+                    const filterFn = this.translateFilter(relation, (filter as any)[attr], context, option);
+                    mto.push(
                         (node, nodeDict, exprResolveFns) => {
                             const row = this.constructRow(node, context, option);
                             if (obscurePass((row as any)[`${attr}Id`], option)) {
@@ -809,7 +902,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                                     }
                                     return false;
                                 }
-                                return fn(node2, nodeDict, exprResolveFns);
+                                return filterFn(node2, nodeDict, exprResolveFns);
                             }
                             return false;
                         }
@@ -823,7 +916,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     if (option?.obscure) {
                         // 如果是obscure，则返回的集合中有没有都不能否决“可能有”或“并不全部是”，所以可以直接返回true
                         if (['in', 'not all'].includes(predicate)) {
-                            fns.push(() => true);
+                            self.push(() => true);
                             continue;
                         }
                     }
@@ -840,7 +933,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                      * 此时还没有确定父行，只有查询中明确带有id的查询可以先执行，否则不执行，暂先这个逻辑 by Xc 20230725
                      */
                     const makeAfterLogic = () => {
-                        fns.push((node, nodeDict) => {
+                        otm.push((node, nodeDict) => {
                             const row = this.constructRow(node, context, option);
                             if (!row) {
                                 return false;
@@ -901,7 +994,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                                 [fk]: filter.id,
                             });
                         }
-                        else {    
+                        else {
                             Object.assign(otmFilter, {
                                 [fk]: {
                                     $ne: filter.id,
@@ -919,8 +1012,8 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                                     return (ele)[fk] as string | null;
                                 }
                             );
-    
-                            fns.push((node) => {
+
+                            self.push((node) => {
                                 const row = this.constructRow(node, context, option);
                                 if (!row) {
                                     return false;
@@ -960,24 +1053,31 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             }
         }
 
-        return (node, nodeDict, exprResolveFns) => {
+        return {
+            self,
+            otm,
+            mto,
+            nodeId,
+        };
+    }
+
+    private translateFilter<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(
+        entity: T,
+        filter: ED[T]['Selection']['filter'],
+        context: Cxt,
+        option?: OP) {
+        const filterFns = this.translateFilterInner(entity, filter, context, option);
+
+        const { nodeId } = filterFns;
+        return (node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => {            
             if (nodeId) {
                 assert(!nodeDict.hasOwnProperty(nodeId), `Filter中的nodeId「${nodeId}」出现了多次`);
                 Object.assign(nodeDict, {
                     [nodeId]: this.constructRow(node, context, option),
                 });
             }
-            const row = this.constructRow(node, context, option);
-            if (!row) {
-                return false;
-            }
-            for (const fn of fns) {
-                if (!fn(node, nodeDict, exprResolveFns)) {
-                    return false;
-                }
-            }
-            return true;
-        };
+            return this.testFilterFns(node, nodeDict, exprResolveFns, filterFns);
+        }
     }
 
     private translateSorter<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(
@@ -1836,7 +1936,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 if (node.$next) {
                     // create/update
                     node.$current = Object.assign(node.$current || {}, node.$next) as EntityShape;
-                    
+
                     if (node.$current) {
                         this.addToOperationResult(result, entity, 'create');
                     }

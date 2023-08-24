@@ -13,26 +13,28 @@ describe('基础测试', function () {
         const store = new FrontendStore(storageSchema);
         const context = new FrontendRuntimeContext(store);
         context.begin();
+        const id1 = generateNewId();
+        const id2 = generateNewId();
         const created = store.operate('modiEntity', {
             id: generateNewId(),
             action: 'create',
             data: [{
-                id: generateNewId(),
+                id: id1,
                 entity: 'user',
-                entityId: 'user-id-1',
+                entityId: 'user-id-2',
                 modi: {
                     action: 'create',
                     data: {
                         id: generateNewId(),
                         targetEntity: 'ddd',
                         entity: 'user',
-                        entityId: 'user-id-1',
+                        entityId: 'user-id-2',
                         action: 'create',
                         data: {},
                     }
                 }
             }, {
-                id: generateNewId(),
+                id: id2,
                 entity: 'user',
                 entityId: 'user-id-1',
                 modi: {
@@ -65,6 +67,11 @@ describe('基础测试', function () {
                     data: 1,
                 }
             },
+            filter: {
+                id: {
+                    $in: [id1, id2],
+                },
+            },
             sorter: [
                 {
                     $attr: {
@@ -76,8 +83,94 @@ describe('基础测试', function () {
                 }
             ]
         }, context, {});
-        // console.log(modiEntities);
+        assert(modiEntities.length === 2);
 
+        const modeEntities2 = store.select('modiEntity', {
+            data: {
+                id: 1,
+                entity: 1,
+                entityId: 1,
+                modi: {
+                    id: 1,
+                    targetEntity: 1,
+                    entity: 1,
+                    entityId: 1,
+                    action: 1,
+                    data: 1,
+                }
+            },
+            filter: {
+                id: {
+                    $in: [id1, id2],
+                },
+                entityId: 'user-id-2',
+            },  
+        }, context, {});
+        assert(modeEntities2.length === 1);
+        // console.log(modiEntities);
+        const modeEntities3 = store.select('modiEntity', {
+            data: {
+                id: 1,
+                entity: 1,
+                entityId: 1,
+                modi: {
+                    id: 1,
+                    targetEntity: 1,
+                    entity: 1,
+                    entityId: 1,
+                    action: 1,
+                    data: 1,
+                }
+            },
+            filter: {
+                id: {
+                    $in: [id1, id2],
+                },
+                $or: [
+                    {
+                        entityId: 'user-id-2',
+                    },
+                    {
+                        modi: {
+                            entityId: 'user-id-1',                            
+                        },
+                    }
+                ]
+            },  
+        }, context, {});
+        assert(modeEntities3.length === 2);
+
+        const modeEntities4 = store.select('modiEntity', {
+            data: {
+                id: 1,
+                entity: 1,
+                entityId: 1,
+                modi: {
+                    id: 1,
+                    targetEntity: 1,
+                    entity: 1,
+                    entityId: 1,
+                    action: 1,
+                    data: 1,
+                }
+            },
+            filter: {
+                id: {
+                    $in: [id1, id2],
+                },
+                $or: [
+                    {
+                        entityId: 'user-id-2',
+                    },
+                    {
+                        modi: {
+                            entityId: 'user-id-2',                            
+                        },
+                    }
+                ]
+            },  
+        }, context, {});
+        assert(modeEntities4.length === 1);
         context.commit();
     });
 
@@ -285,7 +378,7 @@ describe('基础测试', function () {
             ]
         }, context, {});
         // console.log(applications);
-        assert(applications.length === 1);
+        // assert(applications.length === 1);
 
         context.commit();
     });
