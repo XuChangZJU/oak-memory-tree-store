@@ -868,6 +868,9 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     mto.push(
                         (node, nodeDict, exprResolveFns) => {
                             const row = this.constructRow(node, context, option);
+                            if (!row) {
+                                return false;
+                            }
                             if (obscurePass((row as any).entity, option) || obscurePass((row as any).entityId, option)) {
                                 return true;
                             }
@@ -891,6 +894,9 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     mto.push(
                         (node, nodeDict, exprResolveFns) => {
                             const row = this.constructRow(node, context, option);
+                            if (!row) {
+                                return false;
+                            }
                             if (obscurePass((row as any)[`${attr}Id`], option)) {
                                 return true;
                             }
