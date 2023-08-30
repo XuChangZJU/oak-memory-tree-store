@@ -1495,7 +1495,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 if (rel === 1) {
                     if (row[attr] === undefined) {
                         incompletedRowIds.push(row.id!);
-                        break;
+                        // break;
                     }
                     else if (typeof projection[attr] === 'number') {
                         Object.assign(result, {
