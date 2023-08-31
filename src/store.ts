@@ -866,8 +866,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 }
                 else if (relation === 2) {
                     // 基于entity/entityId的指针
-                    assert(typeof projection[attr] === 'object');
-                    const filterFn = this.translateFilter(attr, projection[attr], (filter as any)[attr], context, option);
+                    const filterFn = this.translateFilter(attr, projection[attr] || {}, (filter as any)[attr], context, option);
                     mto.push(
                         (node, nodeDict, exprResolveFns) => {
                             const row = this.constructRow(node, context, option);
@@ -877,8 +876,23 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                             if (obscurePass((row as any).entity, option) || obscurePass((row as any).entityId, option)) {
                                 return true;
                             }
-                            if ((row as any).entity !== attr || !(row as any).entityId) {
+                            if ((row as any).entity !== attr) {
                                 return false;
+                            }
+                            if ((row as any).entityId === null) {
+                                return false;
+                            }
+                            if ((row as any).entityId === undefined) {
+                                assert(typeof projection[attr] === 'object');
+                                throw new OakRowUnexistedException([{
+                                    entity,
+                                    selection: {
+                                        data: projection,
+                                        filter: {
+                                            id: row.id,
+                                        },
+                                    },
+                                }]);
                             }
                             const node2 = get(this.store, `${attr}.${(row as any).entityId}`);
                             if (!node2) {
@@ -893,8 +907,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 }
                 else if (typeof relation === 'string') {
                     // 只能是基于普通属性的外键
-                    assert(typeof projection[attr] === 'object');
-                    const filterFn = this.translateFilter(relation, projection[attr], (filter as any)[attr], context, option);
+                    const filterFn = this.translateFilter(relation, projection[attr] || {}, (filter as any)[attr], context, option);
                     mto.push(
                         (node, nodeDict, exprResolveFns) => {
                             const row = this.constructRow(node, context, option);
@@ -921,7 +934,9 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                                     entity,
                                     selection: {
                                         data: projection,
-                                        filter,
+                                        filter: {
+                                            id: row.id,
+                                        },
                                     },
                                 }]);
                             }
@@ -1461,7 +1476,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 }
             }
             assert(false, '找不到可用的expr命名');
-        }
+        };
         const sortToProjection = <T2 extends keyof ED>(entity2: T2, proj: ED[T2]['Selection']['data'], sort: any) => {
             Object.keys(sort).forEach(
                 (attr) => {
