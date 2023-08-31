@@ -239,6 +239,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
 
     private translateLogicFilter<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(
         entity: T,
+        projection: ED[T]['Selection']['data'],
         filter: NonNullable<ED[T]['Selection']['filter']>,
         attr: string,
         context: Cxt,
@@ -255,7 +256,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             case '$and': {
                 const filters = filter[attr] as NonNullable<ED[T]['Selection']['filter']>[];
                 const fns = filters!.map(
-                    (ele) => this.translateFilterInner(entity, ele, context, option)
+                    (ele) => this.translateFilterInner(entity, projection, ele, context, option)
                 );
                 self.push(...(fns.map(ele => ele.self).flat()));
                 otm.push(...(fns.map(ele => ele.otm).flat()));
@@ -265,7 +266,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             case '$or': {
                 const filters = filter[attr] as NonNullable<ED[T]['Selection']['filter']>[];
                 const fns = filters!.map(
-                    (ele: NonNullable<ED[T]['Selection']['filter']>) => this.translateFilterInner(entity, ele, context, option)
+                    (ele: NonNullable<ED[T]['Selection']['filter']>) => this.translateFilterInner(entity, projection, ele, context, option)
                 );
                 /**
                  * 对于or的情况，按最坏的一种判定来计算，同时对所有的判定也可以排序，先计算代价最轻的
@@ -309,7 +310,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             }
             case '$not': {
                 const filter2 = filter[attr] as NonNullable<ED[T]['Selection']['filter']>;
-                const filterFn = this.translateFilterInner(entity, filter2!, context, option);
+                const filterFn = this.translateFilterInner(entity, projection, filter2!, context, option);
 
                 const fn = (node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => {
                     if (this.testFilterFns(node, nodeDict, exprResolveFns, filterFn)) {
@@ -809,6 +810,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
 
     private translateFilterInner<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(
         entity: T,
+        projection: ED[T]['Selection']['data'],
         filter: ED[T]['Selection']['filter'],
         context: Cxt,
         option?: OP): {
@@ -829,7 +831,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 })['#id'];
             }
             else if (['$and', '$or', '$xor', '$not'].includes(attr)) {
-                const filterFns = this.translateLogicFilter(entity, filter!, attr, context, option);
+                const filterFns = this.translateLogicFilter(entity, projection, filter!, attr, context, option);
                 self.push(...(filterFns.self));
                 otm.push(...(filterFns.otm));
                 mto.push(...(filterFns.mto));
@@ -864,7 +866,8 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 }
                 else if (relation === 2) {
                     // 基于entity/entityId的指针
-                    const filterFn = this.translateFilter(attr, (filter as any)[attr], context, option);
+                    assert(typeof projection[attr] === 'object');
+                    const filterFn = this.translateFilter(attr, projection[attr], (filter as any)[attr], context, option);
                     mto.push(
                         (node, nodeDict, exprResolveFns) => {
                             const row = this.constructRow(node, context, option);
@@ -890,7 +893,8 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 }
                 else if (typeof relation === 'string') {
                     // 只能是基于普通属性的外键
-                    const filterFn = this.translateFilter(relation, (filter as any)[attr], context, option);
+                    assert(typeof projection[attr] === 'object');
+                    const filterFn = this.translateFilter(relation, projection[attr], (filter as any)[attr], context, option);
                     mto.push(
                         (node, nodeDict, exprResolveFns) => {
                             const row = this.constructRow(node, context, option);
@@ -910,6 +914,18 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                                 }
                                 return filterFn(node2, nodeDict, exprResolveFns);
                             }
+                            if ((row as any)[`${attr}Id`] === undefined) {
+                                // 说明一对多的外键没有取出来，需要抛出RowUnexists异常
+                                assert(typeof projection[attr] === 'object');
+                                throw new OakRowUnexistedException([{
+                                    entity,
+                                    selection: {
+                                        data: projection,
+                                        filter,
+                                    },
+                                }]);
+                            }
+                            assert((row as any)[`${attr}Id`] === null);
                             return false;
                         }
                     );
@@ -1069,10 +1085,11 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
 
     private translateFilter<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(
         entity: T,
+        projection: ED[T]['Selection']['data'],
         filter: ED[T]['Selection']['filter'],
         context: Cxt,
         option?: OP) {
-        const filterFns = this.translateFilterInner(entity, filter, context, option);
+        const filterFns = this.translateFilterInner(entity, projection, filter, context, option);
 
         const { nodeId } = filterFns;
         return (node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => {            
@@ -1191,10 +1208,10 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         selection: ED[T]['Selection'],
         context: Cxt,
         option: OP): Partial<ED[T]['Schema']>[] {
-        const { filter } = selection;
+        const { data, filter } = selection;
         const nodeDict = option?.nodeDict;
 
-        const filterFn = filter && this.translateFilter(entity, filter!, context, option);
+        const filterFn = filter && this.translateFilter(entity, data, filter!, context, option);
         const entityNodes = this.store[entity] ? Object.values(this.store[entity]!) : [];
         const nodes = [];
         for (const n of entityNodes) {
