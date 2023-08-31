@@ -2,8 +2,9 @@ import { v4 } from 'uuid';
 import { describe, it } from 'mocha';
 import { EntityDict, storageSchema } from 'oak-domain/lib/base-app-domain';
 import { generateNewId } from 'oak-domain/lib/utils/uuid';
+import { randomName } from 'oak-domain/lib/utils/string';
 import assert from 'assert';
-import TreeStore from '../src/store';
+import TreeStore, { TreeStoreSelectOption } from '../src/store';
 import { FrontendRuntimeContext, FrontendStore } from './Context';
 
 describe('基础测试', function () {
@@ -104,7 +105,7 @@ describe('基础测试', function () {
                     $in: [id1, id2],
                 },
                 entityId: 'user-id-2',
-            },  
+            },
         }, context, {});
         assert(modeEntities2.length === 1);
         // console.log(modiEntities);
@@ -132,11 +133,11 @@ describe('基础测试', function () {
                     },
                     {
                         modi: {
-                            entityId: 'user-id-1',                            
+                            entityId: 'user-id-1',
                         },
                     }
                 ]
-            },  
+            },
         }, context, {});
         assert(modeEntities3.length === 2);
 
@@ -164,11 +165,11 @@ describe('基础测试', function () {
                     },
                     {
                         modi: {
-                            entityId: 'user-id-2',                            
+                            entityId: 'user-id-2',
                         },
                     }
                 ]
-            },  
+            },
         }, context, {});
         assert(modeEntities4.length === 1);
         context.commit();
@@ -1005,8 +1006,8 @@ describe('基础测试', function () {
 
         context.commit();
         // console.log(JSON.stringify(row));
-        assert (row.length === 1);
-        assert (row2.length === 0);
+        assert(row.length === 1);
+        assert(row2.length === 0);
     });
 
     it('[1.12]complicated json filter', () => {
@@ -1166,3 +1167,141 @@ describe('基础测试', function () {
     });
 });
 
+
+describe('性能测试', function () {
+    this.timeout(80000);
+    it('[2.1]子查询性能测试', () => {
+        const store = new FrontendStore(storageSchema);
+        const context = new FrontendRuntimeContext(store);
+        context.begin();
+
+        const users: EntityDict['user']['CreateSingle']['data'][] = [];
+        let iter = 10;
+        while (iter--) {
+            const id = generateNewId();
+            const user: EntityDict['user']['CreateSingle']['data'] = {
+                id,
+                name: randomName('user'),
+                nickname: randomName('nick'),
+            };
+            users.push(user);
+            // 每人再介绍10个人
+            let iter2 = 10;
+            while (iter2--) {
+                const idd = v4();
+                const user: EntityDict['user']['CreateSingle']['data'] = {
+                    id: idd,
+                    name: randomName('user'),
+                    nickname: randomName('nick'),
+                    refId: id,
+                };
+                users.push(user);
+
+
+                // 每人再介绍10个人
+                let iter3 = 10;
+                while (iter3--) {
+                    const user: EntityDict['user']['CreateSingle']['data'] = {
+                        id: v4(),
+                        name: randomName('user'),
+                        nickname: randomName('nick'),
+                        refId: idd,
+                    };
+                    users.push(user);
+                }
+            }
+        }
+
+        context.operate('user', {
+            id: generateNewId(),
+            action: 'create',
+            data: users,
+        }, {});
+
+        /* const relationId = generateNewId();
+        context.operate('relation', {
+            id: generateNewId(),
+            action: 'create',
+            data: {
+                id: relationId,
+                name: 'bbbccc',
+            },
+        }, {});
+
+        const userRelations: EntityDict['userRelation']['CreateSingle']['data'][] = [];
+        iter = 50;
+        while (iter --) {
+            userRelations.push({
+                id: generateNewId(),
+                userId: users[iter].id,
+                entity: 'modi',
+                entityId: '111',
+                relationId,
+            });
+        }
+        context.operate('userRelation', {
+            id: generateNewId(),
+            action: 'create',
+            data: userRelations,
+        }, {}); */
+
+        context.commit();
+
+        /**
+         * 构造一个场景，三层子查询
+         * 在原算法下（外层每一行去内层匹配）相当于数据库中的三层nestloopjoin，对user表进行遍历达到了2211次（1 +  1110 + 110 * 10）
+         * 耗时3s
+         * 
+         * 新算法使用hashjoin，每次将内表建立成hash桶，再进行匹配
+         * 耗时20ms
+         */
+
+        {
+            // 新算法
+            const start = Date.now();
+            context.begin();
+            const users2 = store.select<'user', TreeStoreSelectOption>('user', {
+                data: {
+                    id: 1,
+                    name: 1,
+                },
+                filter: {
+                    user$ref: {
+                        user$ref: {
+                            name: {
+                                $exists: true,
+                            },
+                        },
+                    },
+                },
+            }, context, { });
+            context.commit();
+            const duration = Date.now() - start;
+            console.log(users2.length, duration);
+        }
+
+        {
+            // 旧算法
+            const start = Date.now();
+            context.begin();
+            const users2 = store.select<'user', TreeStoreSelectOption>('user', {
+                data: {
+                    id: 1,
+                    name: 1,
+                },
+                filter: {
+                    user$ref: {
+                        user$ref: {
+                            name: {
+                                $exists: true,
+                            },
+                        },
+                    },
+                },
+            }, context, { disableSubQueryHashjoin: true });
+            context.commit();
+            const duration = Date.now() - start;
+            console.log(users2.length, duration);
+        }
+    });
+})

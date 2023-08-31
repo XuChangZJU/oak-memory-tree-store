@@ -1,4 +1,5 @@
-import { cloneDeep, get, groupBy, set, unset, difference, intersection, pull } from 'oak-domain/lib/utils/lodash';
+import { cloneDeep, get, groupBy, set, unset, 
+    difference, intersection, pull, pick } from 'oak-domain/lib/utils/lodash';
 import { assert } from 'oak-domain/lib/utils/assert';
 import {
     EntityShape, OperationResult, OperateOption, OpRecord,
@@ -37,6 +38,7 @@ class OakExpressionUnresolvedException<ED extends EntityDict & BaseEntityDict> e
 
 export interface TreeStoreSelectOption extends SelectOption {
     nodeDict?: NodeDict;
+    disableSubQueryHashjoin?: boolean;           // 禁用hashjoin优化，可能会导致性能下降严重（对比测试用）
 }
 
 export interface TreeStoreOperateOption extends OperateOption {
@@ -928,6 +930,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     }
                     const fk = otmForeignKey || 'entityId';
                     const otmProjection = {
+                        id: 1,
                         [fk]: 1,
                     };
                     /**
@@ -991,6 +994,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                             }
                         });
                     };
+
                     if (filter.id && typeof filter.id === 'string') {
                         const otmFilter = !otmForeignKey ? Object.assign({
                             entity,
@@ -1035,6 +1039,52 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                                     }
                                     default: {
                                         throw new Error(`illegal sqp: ${predicate}`);
+                                    }
+                                }
+                            });
+                        }
+                        catch (err) {
+                            if (err instanceof OakExpressionUnresolvedException) {
+                                makeAfterLogic();
+                            }
+                            else {
+                                throw err;
+                            }
+                        }
+                    }
+                    else if (!option?.disableSubQueryHashjoin) {
+                        /**
+                         * 尝试用hashjoin将内表数组取出，因为memory中的表都不会太大，且用不了索引（未来优化了可能可以用id直接取值），因而用hash应当会更快
+                         */
+                        const option2 = Object.assign({}, option, { dontCollect: true });
+                        try {
+                            const subQueryRows = this.selectAbjointRow(otmEntity, {
+                                data: otmProjection,
+                                filter: filter[attr],
+                            }, context, option2);
+    
+                            const buckets = groupBy(subQueryRows, fk);
+
+                            otm.push((node, nodeDict) => {
+                                const row = this.constructRow(node, context, option);
+                                if (!row) {
+                                    return false;
+                                }
+                                switch (predicate) {
+                                    case 'in': {
+                                        return (buckets[row.id]?.length > 0);
+                                    }
+                                    case 'not in': {
+                                        return (!buckets[row.id] || buckets[row.id].length === 0);
+                                    }
+                                    case 'all': {
+                                        return (buckets[row.id]?.length > 0 && Object.keys(buckets).length === 1);
+                                    }
+                                    case 'not all': {
+                                        return Object.keys(buckets).length > 1 || !buckets.hasOwnProperty(row.id);
+                                    }
+                                    default: {
+                                        assert(false, `unrecoganized sqp operator: ${predicate}`);
                                     }
                                 }
                             });
@@ -1186,6 +1236,25 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         }
     }
 
+    /**
+     * 目标行，如果有id过滤条件可直接取
+     * @param entity 
+     * @param selection 
+     * @returns 
+     */
+    private getEntityNodes<T extends keyof ED>(entity: T, selection: ED[T]['Selection']): RowNode[] {
+        if (this.store[entity]) {
+            const { filter } = selection;
+            if (filter?.id && (typeof filter.id === 'string' || typeof filter.id === 'object' && typeof filter.id.$in === 'object')) {
+                const ids: string[] = typeof filter.id === 'string' ? [filter.id] : filter.id.$in;
+                const entityNodes = pick(this.store[entity], ids);
+                return Object.values(entityNodes);
+            }
+            return Object.values(this.store[entity]!);
+        }
+        return [];
+    }
+
     protected selectAbjointRow<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(
         entity: T,
         selection: ED[T]['Selection'],
@@ -1195,10 +1264,9 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         const nodeDict = option?.nodeDict;
 
         const filterFn = filter && this.translateFilter(entity, filter!, context, option);
-        const entityNodes = this.store[entity] ? Object.values(this.store[entity]!) : [];
+        const entityNodes = this.getEntityNodes(entity, selection);
         const nodes = [];
         for (const n of entityNodes) {
-            // 做个优化，若是插入的行不用等
             if (n.$txnId && n.$txnId !== context.getCurrentTxnId() && n.$current === null) {
                 continue;
             }
