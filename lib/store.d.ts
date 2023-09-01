@@ -8,6 +8,7 @@ import { CascadeStore } from 'oak-domain/lib/store/CascadeStore';
 import { Context } from 'oak-domain/lib/types';
 export interface TreeStoreSelectOption extends SelectOption {
     nodeDict?: NodeDict;
+    disableSubQueryHashjoin?: boolean;
 }
 export interface TreeStoreOperateOption extends OperateOption {
 }
@@ -53,6 +54,13 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
     private translateFilterInner;
     private translateFilter;
     private translateSorter;
+    /**
+     * 目标行，如果有id过滤条件可直接取
+     * @param entity
+     * @param selection
+     * @returns
+     */
+    private getEntityNodes;
     protected selectAbjointRow<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(entity: T, selection: ED[T]['Selection'], context: Cxt, option: OP): Partial<ED[T]['Schema']>[];
     protected updateAbjointRow<T extends keyof ED, OP extends TreeStoreOperateOption, Cxt extends Context>(entity: T, operation: ED[T]['CreateSingle'] | ED[T]['Update'] | ED[T]['Remove'], context: Cxt, option: OP): number;
     protected selectAbjointRowAsync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends Context>(entity: T, selection: ED[T]['Selection'], context: Cxt, option: OP): Promise<Partial<ED[T]["Schema"]>[]>;
