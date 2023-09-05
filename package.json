@@ -15,9 +15,13 @@
     "scripts": {
         "make:domain": "ts-node test/build-app-domain",
         "test": "cross-env TS_NODE_PROJECT='tsconfig.mocha.json' mocha",
-        "build": "tsc"
+        "build": "tsc -p tsconfig.json",
+        "build-es": "tsc -p tsconfig.es.json"
     },
-    "main": "lib/index",
+    "main": "lib/index.js",
+    "module": "es/index.js",
+    "types": "es/index.d.ts",
+    "typings": "es/index.d.ts",
     "devDependencies": {
         "@babel/cli": "^7.12.13",
         "@babel/core": "^7.12.13",
