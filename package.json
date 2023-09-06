@@ -15,8 +15,7 @@
     "scripts": {
         "make:domain": "ts-node test/build-app-domain",
         "test": "cross-env TS_NODE_PROJECT='tsconfig.mocha.json' mocha",
-        "build": "tsc -p tsconfig.json",
-        "build-es": "tsc -p tsconfig.es.json"
+        "build": "tsc -p tsconfig.json && tsc -p tsconfig.es.json"
     },
     "main": "lib/index.js",
     "module": "es/index.js",
