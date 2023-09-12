@@ -707,14 +707,14 @@ export default class TreeStore extends CascadeStore {
                         if (obscurePass(row.entity, option) || obscurePass(row.entityId, option)) {
                             return true;
                         }
-                        if (row.entity !== attr) {
-                            return false;
-                        }
-                        if (row.entityId === null) {
-                            return false;
-                        }
-                        if (row.entityId === undefined) {
+                        if (row.entityId === undefined || row.entity === undefined) {
                             assert(typeof projection[attr] === 'object');
+                            if (option?.ignoreAttrMiss) {
+                                if (process.env.NODE_ENV === 'development') {
+                                    console.warn(`对象${entity}上的entity/entityId不能确定值，可能会影响判定结果`);
+                                }
+                                return false; // 若不能确定，认定为条件不满足                                    
+                            }
                             throw new OakRowUnexistedException([{
                                     entity,
                                     selection: {
@@ -724,6 +724,12 @@ export default class TreeStore extends CascadeStore {
                                         },
                                     },
                                 }]);
+                        }
+                        if (row.entity !== attr) {
+                            return false;
+                        }
+                        if (row.entityId === null) {
+                            return false;
                         }
                         const node2 = get(this.store, `${attr}.${row.entityId}`);
                         if (!node2) {
@@ -759,6 +765,12 @@ export default class TreeStore extends CascadeStore {
                         if (row[`${attr}Id`] === undefined) {
                             // 说明一对多的外键没有取出来，需要抛出RowUnexists异常
                             assert(typeof projection[attr] === 'object');
+                            if (option?.ignoreAttrMiss) {
+                                if (process.env.NODE_ENV === 'development') {
+                                    console.warn(`对象${entity}上的${attr}Id不能确定值，可能会影响判定结果`);
+                                }
+                                return false; // 若不能确定，认定为条件不满足                                    
+                            }
                             throw new OakRowUnexistedException([{
                                     entity,
                                     selection: {
@@ -1397,17 +1409,24 @@ export default class TreeStore extends CascadeStore {
             // 如果有缺失属性的行，则报OakRowUnexistedException错误
             // fixed: 这里不报了。按约定框架应当保证取到要访问的属性
             // fixed: 和外键缺失一样，还是报，上层在知道框架会保证取到的情况下用allowMiss忽略此错误
-            throw new OakRowUnexistedException([{
-                    entity,
-                    selection: {
-                        data: projection,
-                        filter: {
-                            id: {
-                                $in: incompletedRowIds,
+            if (option?.ignoreAttrMiss) {
+                if (process.env.NODE_ENV === 'development') {
+                    console.warn(`对象${entity}上有属性缺失，可能会影响上层使用结果，请确定`);
+                }
+            }
+            else {
+                throw new OakRowUnexistedException([{
+                        entity,
+                        selection: {
+                            data: projection,
+                            filter: {
+                                id: {
+                                    $in: incompletedRowIds,
+                                },
                             },
                         },
-                    },
-                }]);
+                    }]);
+            }
         }
         // 再计算sorter
         if (sorter) {

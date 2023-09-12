@@ -1,5 +1,7 @@
-import { cloneDeep, get, groupBy, set, unset, 
-    difference, intersection, pull, pick } from 'oak-domain/lib/utils/lodash';
+import {
+    cloneDeep, get, groupBy, set, unset,
+    difference, intersection, pull, pick
+} from 'oak-domain/lib/utils/lodash';
 import { assert } from 'oak-domain/lib/utils/assert';
 import {
     EntityShape, OperationResult, OperateOption, OpRecord,
@@ -235,7 +237,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         for (const f of otm) {
             if (!f(node, nodeDict, exprResolveFns)) {
                 return false;
-            }            
+            }
         }
         return true;
     }
@@ -251,7 +253,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             otm: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean>;
             mto: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean>;
         } {
-            
+
         const self: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean> = [];
         const otm: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean> = [];
         const mto: Array<(node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => boolean> = [];
@@ -879,14 +881,14 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                             if (obscurePass((row as any).entity, option) || obscurePass((row as any).entityId, option)) {
                                 return true;
                             }
-                            if ((row as any).entity !== attr) {
-                                return false;
-                            }
-                            if ((row as any).entityId === null) {
-                                return false;
-                            }
-                            if ((row as any).entityId === undefined) {
+                            if ((row as any).entityId === undefined || (row as any).entity === undefined) {
                                 assert(typeof projection[attr] === 'object');
+                                if (option?.ignoreAttrMiss) {
+                                    if (process.env.NODE_ENV === 'development') {
+                                        console.warn(`对象${entity as string}上的entity/entityId不能确定值，可能会影响判定结果`);
+                                    }
+                                    return false;       // 若不能确定，认定为条件不满足                                    
+                                }
                                 throw new OakRowUnexistedException([{
                                     entity,
                                     selection: {
@@ -896,6 +898,12 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                                         },
                                     },
                                 }]);
+                            }
+                            if ((row as any).entity !== attr) {
+                                return false;
+                            }
+                            if ((row as any).entityId === null) {
+                                return false;
                             }
                             const node2 = get(this.store, `${attr}.${(row as any).entityId}`);
                             if (!node2) {
@@ -933,6 +941,12 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                             if ((row as any)[`${attr}Id`] === undefined) {
                                 // 说明一对多的外键没有取出来，需要抛出RowUnexists异常
                                 assert(typeof projection[attr] === 'object');
+                                if (option?.ignoreAttrMiss) {
+                                    if (process.env.NODE_ENV === 'development') {
+                                        console.warn(`对象${entity as string}上的${attr}Id不能确定值，可能会影响判定结果`);
+                                    }
+                                    return false;       // 若不能确定，认定为条件不满足                                    
+                                }
                                 throw new OakRowUnexistedException([{
                                     entity,
                                     selection: {
@@ -1094,7 +1108,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                                 data: otmProjection,
                                 filter: filter[attr],
                             }, context, option2);
-    
+
                             const buckets = groupBy(subQueryRows, fk);
 
                             otm.push((node, nodeDict) => {
@@ -1158,7 +1172,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         const filterFns = this.translateFilterInner(entity, projection, filter, context, option);
 
         const { nodeId } = filterFns;
-        return (node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => {            
+        return (node: RowNode, nodeDict: NodeDict, exprResolveFns: Array<ExprResolveFn>) => {
             if (nodeId) {
                 assert(!nodeDict.hasOwnProperty(nodeId), `Filter中的nodeId「${nodeId}」出现了多次`);
                 Object.assign(nodeDict, {
@@ -1664,17 +1678,24 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             // 如果有缺失属性的行，则报OakRowUnexistedException错误
             // fixed: 这里不报了。按约定框架应当保证取到要访问的属性
             // fixed: 和外键缺失一样，还是报，上层在知道框架会保证取到的情况下用allowMiss忽略此错误
-            throw new OakRowUnexistedException([{
-                entity,
-                selection: {
-                    data: projection,
-                    filter: {
-                        id: {
-                            $in: incompletedRowIds,
+            if (option?.ignoreAttrMiss) {
+                if (process.env.NODE_ENV === 'development') {
+                    console.warn(`对象${entity as string}上有属性缺失，可能会影响上层使用结果，请确定`);
+                }
+            }
+            else {
+                throw new OakRowUnexistedException([{
+                    entity,
+                    selection: {
+                        data: projection,
+                        filter: {
+                            id: {
+                                $in: incompletedRowIds,
+                            },
                         },
                     },
-                },
-            }]);
+                }]);
+            }
         }
 
         // 再计算sorter
