@@ -1,6 +1,6 @@
 import { NodeId } from "oak-domain/lib/types/Demand";
 import { EntityShape } from "oak-domain/lib/types/Entity";
-export declare type RowNode = {
+export type RowNode = {
     $txnId?: string;
     $next?: Partial<EntityShape & {
         [K: string]: any;
@@ -9,7 +9,7 @@ export declare type RowNode = {
     $nextNode?: RowNode;
     $path?: string;
 };
-export declare type NodeDict = {
+export type NodeDict = {
     [K in NodeId]: EntityShape;
 };
-export declare type ExprResolveFn = (nodeDict: NodeDict) => ExprResolveFn | any;
+export type ExprResolveFn = (nodeDict: NodeDict) => ExprResolveFn | any;
