@@ -1023,24 +1023,44 @@ export default class TreeStore extends CascadeStore {
                     }
                     return -1;
                 }
-                if (v1 > v2) {
-                    if (direction === 'desc') {
-                        return -1;
-                    }
-                    else {
-                        return 1;
-                    }
-                }
-                else if (v1 < v2) {
-                    if (direction === 'desc') {
-                        return 1;
-                    }
-                    else {
-                        return -1;
-                    }
+                const attrDef = this.getSchema()[entity2].attributes[attr];
+                // 处理enum，现在enum是按定义enum的顺序从小到大排列
+                if (attrDef?.type === 'enum') {
+                    const enums = attrDef.enumeration;
+                    const i1 = enums.indexOf(v1);
+                    const i2 = enums.indexOf(v2);
+                    assert(i1 >= 0 && i2 >= 0);
+                    return direction === 'asc' ? i1 - i2 : i2 - i1;
                 }
                 else {
-                    return 0;
+                    // createAt为1时被认为是最大的（新建）
+                    if (['$$createAt$$', '$$updateAt$$'].includes(attr)) {
+                        if (v1 === 1) {
+                            return direction === 'asc' ? 1 : -1;
+                        }
+                        else if (v2 === 1) {
+                            return direction === 'asc' ? -1 : 1;
+                        }
+                    }
+                    if (v1 > v2) {
+                        if (direction === 'desc') {
+                            return -1;
+                        }
+                        else {
+                            return 1;
+                        }
+                    }
+                    else if (v1 < v2) {
+                        if (direction === 'desc') {
+                            return 1;
+                        }
+                        else {
+                            return -1;
+                        }
+                    }
+                    else {
+                        return 0;
+                    }
                 }
             }
             else {
