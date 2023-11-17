@@ -1988,7 +1988,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             dontCollect: true,
         }));
 
-        return typeof selection.count === 'number' ? Math.min(result.length, selection.count) : result.length;
+        return typeof selection.count === 'number' && selection.count > 0 ? Math.min(result.length, selection.count) : result.length;
     }
 
     private addToTxnNode<Cxt extends Context>(node: RowNode, context: Cxt, action: 'create' | 'update' | 'remove') {
