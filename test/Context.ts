@@ -2,7 +2,6 @@ import TreeStore from '../src/store';
 import { EntityDict } from 'oak-domain/lib/base-app-domain';
 import { SyncContext, SyncRowStore } from "oak-domain/lib/store/SyncRowStore";
 import { OperateOption, OperationResult, SelectOption, AggregationResult, TxnOption, StorageSchema } from "oak-domain/lib/types";
-import { reinforceSelection } from 'oak-domain/lib/store/selection';
 
 /**
  * 实现一个同步的context和store用于测试
@@ -27,7 +26,6 @@ export class FrontendStore extends TreeStore<EntityDict> implements SyncRowStore
         return this.operateSync(entity, operation, context, option);
     }
     select<T extends keyof EntityDict, OP extends SelectOption>(entity: T, selection: EntityDict[T]["Selection"], context: FrontendRuntimeContext, option: OP): Partial<EntityDict[T]["Schema"]>[] {
-        reinforceSelection(this.storageSchema, entity, selection);
         return this.selectSync(entity, selection, context, option);
     }
     count<T extends keyof EntityDict, OP extends SelectOption>(entity: T, selection: Pick<EntityDict[T]["Selection"], "count" | "filter">, context: FrontendRuntimeContext, option: OP): number {

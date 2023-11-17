@@ -1,6 +1,6 @@
 {
     "name": "oak-memory-tree-store",
-    "version": "2.2.5",
+    "version": "3.0.3",
     "description": "oak框架中内存级store的实现",
     "author": {
         "name": "XuChang"
@@ -9,15 +9,18 @@
         "lib/**/*"
     ],
     "dependencies": {
-        "oak-domain": "^2.6.9",
+        "oak-domain": "^3.0.4",
         "uuid": "^8.3.2"
     },
     "scripts": {
         "make:domain": "ts-node test/build-app-domain",
         "test": "cross-env TS_NODE_PROJECT='tsconfig.mocha.json' mocha",
-        "build": "tsc"
+        "build": "tsc -p tsconfig.json && tsc -p tsconfig.es.json"
     },
-    "main": "lib/index",
+    "main": "lib/index.js",
+    "module": "es/index.js",
+    "types": "es/index.d.ts",
+    "typings": "es/index.d.ts",
     "devDependencies": {
         "@babel/cli": "^7.12.13",
         "@babel/core": "^7.12.13",
@@ -28,15 +31,15 @@
         "@types/fs-extra": "^9.0.13",
         "@types/lodash": "^4.14.168",
         "@types/mocha": "^8.2.0",
-        "@types/node": "^14.18.16",
+        "@types/node": "^20.6.0",
         "@types/react": "^17.0.2",
         "@types/uuid": "^8.3.0",
         "assert": "^2.0.0",
         "cross-env": "^7.0.2",
         "fs-extra": "^10.0.0",
         "mocha": "^8.2.1",
-        "ts-node": "~10.9.1",
+        "ts-node": "^10.9.1",
         "tslib": "^2.4.0",
-        "typescript": "~4.7.4"
+        "typescript": "^5.2.2"
     }
 }

@@ -1,24 +1,22 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-const lodash_1 = require("oak-domain/lib/utils/lodash");
-const assert_1 = require("oak-domain/lib/utils/assert");
-const Entity_1 = require("oak-domain/lib/types/Entity");
-const Demand_1 = require("oak-domain/lib/types/Demand");
-const Exception_1 = require("oak-domain/lib/types/Exception");
-const Demand_2 = require("oak-domain/lib/types/Demand");
-const relation_1 = require("oak-domain/lib/store/relation");
-const Expression_1 = require("oak-domain/lib/types/Expression");
-const CascadeStore_1 = require("oak-domain/lib/store/CascadeStore");
-const filter_1 = require("oak-domain/lib/store/filter");
+import { cloneDeep, get, groupBy, set, unset, difference, intersection, pull, pick } from 'oak-domain/lib/utils/lodash';
+import { assert } from 'oak-domain/lib/utils/assert';
+import { DeleteAtAttribute, CreateAtAttribute, UpdateAtAttribute } from "oak-domain/lib/types/Entity";
+import { EXPRESSION_PREFIX, SUB_QUERY_PREDICATE_KEYWORD } from 'oak-domain/lib/types/Demand';
+import { OakCongruentRowExists, OakException, OakRowUnexistedException } from 'oak-domain/lib/types/Exception';
+import { isRefAttrNode } from 'oak-domain/lib/types/Demand';
+import { judgeRelation } from 'oak-domain/lib/store/relation';
+import { execOp, isExpression, opMultipleParams } from 'oak-domain/lib/types/Expression';
+import { CascadeStore } from 'oak-domain/lib/store/CascadeStore';
+import { getRelevantIds } from 'oak-domain/lib/store/filter';
 ;
 ;
 function obscurePass(value, option) {
     return !!(option?.obscure && value === undefined);
 }
-class OakExpressionUnresolvedException extends Exception_1.OakException {
+class OakExpressionUnresolvedException extends OakException {
 }
 ;
-class TreeStore extends CascadeStore_1.CascadeStore {
+export default class TreeStore extends CascadeStore {
     store;
     activeTxnDict;
     stat;
@@ -84,8 +82,8 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                         $$seq$$: `${Math.ceil((Math.random() + 1000) * 100)}`,
                     });
                 }
-                (0, assert_1.assert)(row.id && !row.id.includes('.'));
-                (0, lodash_1.set)(this.store, `${entity}.${row.id}.$current`, row);
+                assert(row.id && !row.id.includes('.'));
+                set(this.store, `${entity}.${row.id}.$current`, row);
             }
         }
         if (stat) {
@@ -117,13 +115,13 @@ class TreeStore extends CascadeStore_1.CascadeStore {
         };
     }
     constructRow(node, context, option) {
-        let data = (0, lodash_1.cloneDeep)(node.$current);
+        let data = cloneDeep(node.$current);
         if (context.getCurrentTxnId() && node.$txnId === context.getCurrentTxnId()) {
             if (!node.$next) {
                 // 如果要求返回delete数据，返回带$$deleteAt$$的行
                 if (option?.includedDeleted) {
                     return Object.assign({}, data, {
-                        [Entity_1.DeleteAtAttribute]: 1,
+                        [DeleteAtAttribute]: 1,
                     });
                 }
                 return null;
@@ -131,14 +129,14 @@ class TreeStore extends CascadeStore_1.CascadeStore {
             else if (!node.$current) {
                 // 本事务创建的，$$createAt$$和$$updateAt$$置为1
                 return Object.assign({}, data, node.$next, {
-                    [Entity_1.CreateAtAttribute]: 1,
-                    [Entity_1.UpdateAtAttribute]: 1,
+                    [CreateAtAttribute]: 1,
+                    [UpdateAtAttribute]: 1,
                 });
             }
             else {
                 // 本事务更新的，$$updateAt$$置为1
                 return Object.assign({}, data, node.$next, {
-                    [Entity_1.UpdateAtAttribute]: 1,
+                    [UpdateAtAttribute]: 1,
                 });
             }
         }
@@ -239,7 +237,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                 break;
             }
             default: {
-                (0, assert_1.assert)(false, `${attr}算子暂不支持`);
+                assert(false, `${attr}算子暂不支持`);
             }
         }
         return {
@@ -261,10 +259,10 @@ class TreeStore extends CascadeStore_1.CascadeStore {
      * @returns
      */
     translateExpressionNode(entity, expression, context, option) {
-        if ((0, Expression_1.isExpression)(expression)) {
+        if (isExpression(expression)) {
             const op = Object.keys(expression)[0];
             const option2 = expression[op];
-            if ((0, Expression_1.opMultipleParams)(op)) {
+            if (opMultipleParams(op)) {
                 const paramsTranslated = option2.map(ele => this.translateExpressionNode(entity, ele, context, option2));
                 return (row, nodeDict) => {
                     let later = false;
@@ -279,7 +277,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                         return ele;
                     });
                     if (!later) {
-                        return (0, Expression_1.execOp)(op, results, option2.obscure);
+                        return execOp(op, results, option2.obscure);
                     }
                     const laterCheckFn = (nodeDict2) => {
                         results = results.map((ele) => {
@@ -292,7 +290,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                         if (results.find(ele => typeof ele === 'function')) {
                             return laterCheckFn;
                         }
-                        return (0, Expression_1.execOp)(op, results, option && option.obscure);
+                        return execOp(op, results, option && option.obscure);
                     };
                     return laterCheckFn;
                 };
@@ -312,17 +310,17 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                             };
                             return laterCheckFn;
                         }
-                        return (0, Expression_1.execOp)(op, result, option2.obscure);
+                        return execOp(op, result, option2.obscure);
                     };
                 }
                 else {
                     return () => {
-                        return (0, Expression_1.execOp)(op, paramsTranslated, option2.obscure);
+                        return execOp(op, paramsTranslated, option2.obscure);
                     };
                 }
             }
         }
-        else if ((0, Demand_2.isRefAttrNode)(expression)) {
+        else if (isRefAttrNode(expression)) {
             // 是RefAttr结点
             return (row, nodeDict) => {
                 if (expression.hasOwnProperty('#attr')) {
@@ -330,7 +328,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                     return row[expression['#attr']];
                 }
                 else {
-                    (0, assert_1.assert)(expression.hasOwnProperty('#refId'));
+                    assert(expression.hasOwnProperty('#refId'));
                     const { ['#refId']: refId, ['#refAttr']: refAttr } = expression;
                     if (nodeDict.hasOwnProperty(refId)) {
                         return nodeDict[refId][refAttr];
@@ -382,68 +380,68 @@ class TreeStore extends CascadeStore_1.CascadeStore {
         switch (predicate) {
             case '$gt': {
                 return (row) => {
-                    const data = (0, lodash_1.get)(row, path);
+                    const data = get(row, path);
                     return ['number', 'string'].includes(typeof data) && data > value || obscurePass(data, option);
                 };
             }
             case '$lt': {
                 return (row) => {
-                    const data = (0, lodash_1.get)(row, path);
+                    const data = get(row, path);
                     return ['number', 'string'].includes(typeof data) && data < value || obscurePass(data, option);
                 };
             }
             case '$gte': {
                 return (row) => {
-                    const data = (0, lodash_1.get)(row, path);
+                    const data = get(row, path);
                     return ['number', 'string'].includes(typeof data) && data >= value || obscurePass(data, option);
                 };
             }
             case '$lte': {
                 return (row) => {
-                    const data = (0, lodash_1.get)(row, path);
+                    const data = get(row, path);
                     return ['number', 'string'].includes(typeof data) && data <= value || obscurePass(data, option);
                 };
             }
             case '$eq': {
                 return (row) => {
-                    const data = (0, lodash_1.get)(row, path);
+                    const data = get(row, path);
                     return ['number', 'string'].includes(typeof data) && data === value || obscurePass(data, option);
                 };
             }
             case '$ne': {
                 return (row) => {
-                    const data = (0, lodash_1.get)(row, path);
+                    const data = get(row, path);
                     return ['number', 'string'].includes(typeof data) && data !== value || obscurePass(data, option);
                 };
             }
             case '$between': {
                 return (row) => {
-                    const data = (0, lodash_1.get)(row, path);
+                    const data = get(row, path);
                     return ['number', 'string'].includes(typeof data) && data >= value[0] && data <= value[1] || obscurePass(data, option);
                 };
             }
             case '$startsWith': {
                 return (row) => {
-                    const data = (0, lodash_1.get)(row, path);
+                    const data = get(row, path);
                     return ['string'].includes(typeof data) && data.startsWith(value) || obscurePass(data, option);
                 };
             }
             case '$endsWith': {
                 return (row) => {
-                    const data = (0, lodash_1.get)(row, path);
+                    const data = get(row, path);
                     return ['string'].includes(typeof data) && data.endsWith(value) || obscurePass(data, option);
                 };
             }
             case '$includes': {
                 return (row) => {
-                    const data = (0, lodash_1.get)(row, path);
+                    const data = get(row, path);
                     return ['string'].includes(typeof data) && data.includes(value) || obscurePass(data, option);
                 };
             }
             case '$exists': {
-                (0, assert_1.assert)(typeof value === 'boolean');
+                assert(typeof value === 'boolean');
                 return (row) => {
-                    const data = (0, lodash_1.get)(row, path);
+                    const data = get(row, path);
                     if (value) {
                         return ![null, undefined].includes(data) || obscurePass(data, option);
                     }
@@ -453,16 +451,16 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                 };
             }
             case '$in': {
-                (0, assert_1.assert)(value instanceof Array);
+                assert(value instanceof Array);
                 return (row) => {
-                    const data = (0, lodash_1.get)(row, path);
+                    const data = get(row, path);
                     return value.includes(data) || obscurePass(data, option);
                 };
             }
             case '$nin': {
-                (0, assert_1.assert)(value instanceof Array);
+                assert(value instanceof Array);
                 return (row) => {
-                    const data = (0, lodash_1.get)(row, path);
+                    const data = get(row, path);
                     return !value.includes(data) || obscurePass(data, option);
                 };
             }
@@ -470,16 +468,16 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                 // json中的多值查询
                 const array = value instanceof Array ? value : [value];
                 return (row) => {
-                    const data = (0, lodash_1.get)(row, path);
-                    return (0, lodash_1.difference)(array, data).length === 0 || obscurePass(data, option);
+                    const data = get(row, path);
+                    return difference(array, data).length === 0 || obscurePass(data, option);
                 };
             }
             case '$overlaps': {
                 // json中的多值查询
                 const array = value instanceof Array ? value : [value];
                 return (row) => {
-                    const data = (0, lodash_1.get)(row, path);
-                    return (0, lodash_1.intersection)(array, data).length > 0 || obscurePass(data, option);
+                    const data = get(row, path);
+                    return intersection(array, data).length > 0 || obscurePass(data, option);
                 };
             }
             default: {
@@ -492,7 +490,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
         const translatePredicateInner = (p, path) => {
             const predicate = Object.keys(p)[0];
             if (predicate.startsWith('$')) {
-                (0, assert_1.assert)(Object.keys(p).length === 1);
+                assert(Object.keys(p).length === 1);
                 fns.push(this.translatePredicate(path, predicate, p[predicate]));
             }
             else {
@@ -646,7 +644,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
             }
             else {
                 // 对象的内部查询
-                (0, assert_1.assert)(this.getSchema()[entity].attributes[attr]?.type === 'object');
+                assert(this.getSchema()[entity].attributes[attr]?.type === 'object');
                 const fn = this.translateObjectPredicate(filter);
                 return (node) => {
                     const row = this.constructRow(node, context, option);
@@ -673,7 +671,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                 otm.push(...(filterFns.otm));
                 mto.push(...(filterFns.mto));
             }
-            else if (attr.toLowerCase().startsWith(Demand_1.EXPRESSION_PREFIX)) {
+            else if (attr.toLowerCase().startsWith(EXPRESSION_PREFIX)) {
                 const fn = this.translateExpression(entity, filter[attr], context, option);
                 // expression上先假设大都是只查询自身和外层的属性，不一定对。by Xc 20230824
                 self.push((node, nodeDict, exprResolveFns) => {
@@ -693,7 +691,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
             }
             else {
                 // 属性级过滤
-                const relation = (0, relation_1.judgeRelation)(this.getSchema(), entity, attr);
+                const relation = judgeRelation(this.getSchema(), entity, attr);
                 if (relation === 1) {
                     // 行本身的属性
                     self.push(this.translateAttribute(entity, filter[attr], attr, context, option));
@@ -710,14 +708,14 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                             return true;
                         }
                         if (row.entityId === undefined || row.entity === undefined) {
-                            (0, assert_1.assert)(typeof projection[attr] === 'object');
+                            assert(typeof projection[attr] === 'object');
                             if (option?.ignoreAttrMiss) {
                                 if (process.env.NODE_ENV === 'development') {
                                     console.warn(`对象${entity}上的entity/entityId不能确定值，可能会影响判定结果`);
                                 }
                                 return false; // 若不能确定，认定为条件不满足                                    
                             }
-                            throw new Exception_1.OakRowUnexistedException([{
+                            throw new OakRowUnexistedException([{
                                     entity,
                                     selection: {
                                         data: projection,
@@ -733,7 +731,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                         if (row.entityId === null) {
                             return false;
                         }
-                        const node2 = (0, lodash_1.get)(this.store, `${attr}.${row.entityId}`);
+                        const node2 = get(this.store, `${attr}.${row.entityId}`);
                         if (!node2) {
                             if (option?.obscure) {
                                 return true;
@@ -755,7 +753,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                             return true;
                         }
                         if (row[`${attr}Id`]) {
-                            const node2 = (0, lodash_1.get)(this.store, `${relation}.${row[`${attr}Id`]}`);
+                            const node2 = get(this.store, `${relation}.${row[`${attr}Id`]}`);
                             if (!node2) {
                                 if (option?.obscure) {
                                     return true;
@@ -766,14 +764,14 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                         }
                         if (row[`${attr}Id`] === undefined) {
                             // 说明一对多的外键没有取出来，需要抛出RowUnexists异常
-                            (0, assert_1.assert)(typeof projection[attr] === 'object');
+                            assert(typeof projection[attr] === 'object');
                             if (option?.ignoreAttrMiss) {
                                 if (process.env.NODE_ENV === 'development') {
                                     console.warn(`对象${entity}上的${attr}Id不能确定值，可能会影响判定结果`);
                                 }
                                 return false; // 若不能确定，认定为条件不满足                                    
                             }
-                            throw new Exception_1.OakRowUnexistedException([{
+                            throw new OakRowUnexistedException([{
                                     entity,
                                     selection: {
                                         data: projection,
@@ -783,14 +781,14 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                                     },
                                 }]);
                         }
-                        (0, assert_1.assert)(row[`${attr}Id`] === null);
+                        assert(row[`${attr}Id`] === null);
                         return false;
                     });
                 }
                 else if (relation instanceof Array) {
                     // 一对多的子查询
                     const [otmEntity, otmForeignKey] = relation;
-                    const predicate = filter[attr][Demand_1.SUB_QUERY_PREDICATE_KEYWORD] || 'in';
+                    const predicate = filter[attr][SUB_QUERY_PREDICATE_KEYWORD] || 'in';
                     if (option?.obscure) {
                         // 如果是obscure，则返回的集合中有没有都不能否决“可能有”或“并不全部是”，所以可以直接返回true
                         if (['in', 'not all'].includes(predicate)) {
@@ -825,7 +823,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                              */
                             const otmFilter = !otmForeignKey ? Object.assign({
                                 entity,
-                            }, filter[attr]) : (0, lodash_1.cloneDeep)(filter[attr]);
+                            }, filter[attr]) : cloneDeep(filter[attr]);
                             if (['not in', 'in'].includes(predicate)) {
                                 Object.assign(otmFilter, {
                                     [fk]: row.id,
@@ -865,7 +863,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                     if (filter.id && typeof filter.id === 'string') {
                         const otmFilter = !otmForeignKey ? Object.assign({
                             entity,
-                        }, filter[attr]) : (0, lodash_1.cloneDeep)(filter[attr]);
+                        }, filter[attr]) : cloneDeep(filter[attr]);
                         if (['not in', 'in'].includes(predicate)) {
                             Object.assign(otmFilter, {
                                 [fk]: filter.id,
@@ -926,7 +924,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                                 data: otmProjection,
                                 filter: filter[attr],
                             }, context, option2);
-                            const buckets = (0, lodash_1.groupBy)(subQueryRows, fk);
+                            const buckets = groupBy(subQueryRows, fk);
                             otm.push((node, nodeDict) => {
                                 const row = this.constructRow(node, context, option);
                                 if (!row) {
@@ -946,7 +944,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                                         return Object.keys(buckets).length > 1 || !buckets.hasOwnProperty(row.id);
                                     }
                                     default: {
-                                        (0, assert_1.assert)(false, `unrecoganized sqp operator: ${predicate}`);
+                                        assert(false, `unrecoganized sqp operator: ${predicate}`);
                                     }
                                 }
                             });
@@ -966,7 +964,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                 }
                 else {
                     // metadata
-                    (0, assert_1.assert)(relation === 0);
+                    assert(relation === 0);
                 }
             }
         }
@@ -982,7 +980,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
         const { nodeId } = filterFns;
         return (node, nodeDict, exprResolveFns) => {
             if (nodeId) {
-                (0, assert_1.assert)(!nodeDict.hasOwnProperty(nodeId), `Filter中的nodeId「${nodeId}」出现了多次`);
+                assert(!nodeDict.hasOwnProperty(nodeId), `Filter中的nodeId「${nodeId}」出现了多次`);
                 Object.assign(nodeDict, {
                     [nodeId]: this.constructRow(node, context, option),
                 });
@@ -994,9 +992,9 @@ class TreeStore extends CascadeStore_1.CascadeStore {
         const compare = (row1, row2, entity2, sortAttr, direction) => {
             const row11 = row1;
             const row22 = row2;
-            (0, assert_1.assert)(Object.keys(sortAttr).length === 1);
+            assert(Object.keys(sortAttr).length === 1);
             const attr = Object.keys(sortAttr)[0];
-            const relation = (0, relation_1.judgeRelation)(this.getSchema(), entity2, attr);
+            const relation = judgeRelation(this.getSchema(), entity2, attr);
             if (relation === 1 || relation === 0) {
                 const getAttrOrExprValue = (r) => {
                     if (sortAttr[attr] === 1) {
@@ -1004,7 +1002,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                     }
                     else {
                         // 改变策略，让所有需要获得的值在projection上取得
-                        (0, assert_1.assert)(typeof sortAttr[attr] === 'string' && sortAttr[attr].startsWith('$expr'));
+                        assert(typeof sortAttr[attr] === 'string' && sortAttr[attr].startsWith('$expr'));
                         return r[sortAttr[attr]];
                     }
                 };
@@ -1047,8 +1045,8 @@ class TreeStore extends CascadeStore_1.CascadeStore {
             }
             else {
                 if (relation === 2) {
-                    (0, assert_1.assert)(row11['entity'] === row22['entity']);
-                    (0, assert_1.assert)(row11.entity === attr);
+                    assert(row11['entity'] === row22['entity']);
+                    assert(row11.entity === attr);
                     const node1 = this.store[row11.entity] && this.store[row11.entity][row11.entityId];
                     const node2 = this.store[row22.entity] && this.store[row22.entity][row22.entityId];
                     const row111 = node1 && this.constructRow(node1, context, option);
@@ -1056,7 +1054,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                     return compare(row111, row222, row11['entity'], sortAttr[attr], direction);
                 }
                 else {
-                    (0, assert_1.assert)(typeof relation === 'string');
+                    assert(typeof relation === 'string');
                     const node1 = this.store[relation] && this.store[relation][row11[`${attr}Id`]];
                     const node2 = this.store[relation] && this.store[relation][row22[`${attr}Id`]];
                     const row111 = node1 && this.constructRow(node1, context, option);
@@ -1084,10 +1082,10 @@ class TreeStore extends CascadeStore_1.CascadeStore {
      */
     getEntityNodes(entity, selection, context) {
         const { filter } = selection;
-        const ids = (0, filter_1.getRelevantIds)(filter);
+        const ids = getRelevantIds(filter);
         if (this.store[entity]) {
             if (ids.length > 0) {
-                const entityNodes = (0, lodash_1.pick)(this.store[entity], ids);
+                const entityNodes = pick(this.store[entity], ids);
                 return Object.values(entityNodes);
             }
             return Object.values(this.store[entity]);
@@ -1104,7 +1102,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
             if (n.$txnId && n.$txnId !== context.getCurrentTxnId() && n.$current === null) {
                 continue;
             }
-            (0, assert_1.assert)(!n.$txnId || n.$txnId === context.getCurrentTxnId());
+            assert(!n.$txnId || n.$txnId === context.getCurrentTxnId());
             const exprResolveFns = [];
             const nodeDict2 = {};
             if (nodeDict) {
@@ -1140,7 +1138,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
         switch (action) {
             case 'create': {
                 const { id } = data;
-                (0, assert_1.assert)(id);
+                assert(id);
                 // const node = this.store[entity] && (this.store[entity]!)[id as string];
                 // const row = node && this.constructRow(node, context) || {};
                 /* if (row) {
@@ -1148,7 +1146,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                 } */
                 if (this.store[entity] && (this.store[entity])[id]) {
                     const node = this.store[entity] && (this.store[entity])[id];
-                    throw new Exception_1.OakCongruentRowExists(entity, this.constructRow(node, context, option));
+                    throw new OakCongruentRowExists(entity, this.constructRow(node, context, option));
                 }
                 if (!data.$$seq$$) {
                     // tree-store随意生成即可
@@ -1165,7 +1163,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                 if (!this.store[entity]) {
                     this.store[entity] = {};
                 }
-                (0, lodash_1.set)(this.store, `${entity}.${id}`, node2);
+                set(this.store, `${entity}.${id}`, node2);
                 this.addToTxnNode(node2, context, 'create');
                 return 1;
             }
@@ -1183,12 +1181,12 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                 for (const id of ids) {
                     let alreadyDirtyNode = false;
                     const node = (this.store[entity])[id];
-                    (0, assert_1.assert)(node && (!node.$txnId || node.$txnId == context.getCurrentTxnId()));
+                    assert(node && (!node.$txnId || node.$txnId == context.getCurrentTxnId()));
                     if (!node.$txnId) {
                         node.$txnId = context.getCurrentTxnId();
                     }
                     else {
-                        (0, assert_1.assert)(node.$txnId === context.getCurrentTxnId());
+                        assert(node.$txnId === context.getCurrentTxnId());
                         alreadyDirtyNode = true;
                     }
                     node.$path = `${entity}.${id}`;
@@ -1218,11 +1216,11 @@ class TreeStore extends CascadeStore_1.CascadeStore {
         return this.updateAbjointRow(entity, operation, context, option);
     }
     operateSync(entity, operation, context, option) {
-        (0, assert_1.assert)(context.getCurrentTxnId());
+        assert(context.getCurrentTxnId());
         return super.operateSync(entity, operation, context, option);
     }
     async operateAsync(entity, operation, context, option) {
-        (0, assert_1.assert)(context.getCurrentTxnId());
+        assert(context.getCurrentTxnId());
         return super.operateAsync(entity, operation, context, option);
     }
     /**
@@ -1236,7 +1234,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
     formExprInResult(entity, projection, data, nodeDict, context) {
         const laterExprDict = {};
         for (const attr in projection) {
-            if (attr.startsWith(Demand_1.EXPRESSION_PREFIX)) {
+            if (attr.startsWith(EXPRESSION_PREFIX)) {
                 const ExprNodeTranslator = this.translateExpression(entity, projection[attr], context, {});
                 const exprResult = ExprNodeTranslator(data, nodeDict);
                 if (typeof exprResult === 'function') {
@@ -1252,7 +1250,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
             }
             else if (attr === '#id') {
                 const nodeId = projection[attr];
-                (0, assert_1.assert)(!nodeDict.hasOwnProperty(nodeId), `Filter中的nodeId「${nodeId}」出现了多次`);
+                assert(!nodeDict.hasOwnProperty(nodeId), `Filter中的nodeId「${nodeId}」出现了多次`);
                 Object.assign(nodeDict, {
                     [nodeId]: data,
                 });
@@ -1284,7 +1282,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
         for (const attr in laterExprDict) {
             const exprResult = laterExprDict[attr](nodeDict);
             // projection是不应出现计算不出来的情况
-            (0, assert_1.assert)(typeof exprResult !== 'function', 'data中的expr无法计算，请检查命名与引用的一致性');
+            assert(typeof exprResult !== 'function', 'data中的expr无法计算，请检查命名与引用的一致性');
             Object.assign(data, {
                 [attr]: exprResult,
             });
@@ -1300,7 +1298,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                     return exprName;
                 }
             }
-            (0, assert_1.assert)(false, '找不到可用的expr命名');
+            assert(false, '找不到可用的expr命名');
         };
         const sortToProjection = (entity2, proj, sort) => {
             Object.keys(sort).forEach((attr) => {
@@ -1314,7 +1312,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                         [attr]: attrName,
                     });
                 }
-                const rel = (0, relation_1.judgeRelation)(this.getSchema(), entity2, attr);
+                const rel = judgeRelation(this.getSchema(), entity2, attr);
                 if (rel === 2 || typeof rel === 'string') {
                     if (!proj[attr]) {
                         Object.assign(proj, {
@@ -1361,8 +1359,8 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                         });
                         const assignIner = (dest, proj, source) => {
                             if (proj instanceof Array) {
-                                (0, assert_1.assert)(dest instanceof Array);
-                                (0, assert_1.assert)(source instanceof Array);
+                                assert(dest instanceof Array);
+                                assert(source instanceof Array);
                                 proj.forEach((attr, idx) => {
                                     if (typeof attr === 'number') {
                                         dest[idx] = source[idx];
@@ -1390,19 +1388,19 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                 }
             }
             // 这三个属性在前台cache中可能表达特殊语义的，需要返回
-            if (row[Entity_1.DeleteAtAttribute]) {
+            if (row[DeleteAtAttribute]) {
                 Object.assign(result, {
-                    [Entity_1.DeleteAtAttribute]: row[Entity_1.DeleteAtAttribute],
+                    [DeleteAtAttribute]: row[DeleteAtAttribute],
                 });
             }
-            if (row[Entity_1.UpdateAtAttribute]) {
+            if (row[UpdateAtAttribute]) {
                 Object.assign(result, {
-                    [Entity_1.UpdateAtAttribute]: row[Entity_1.UpdateAtAttribute],
+                    [UpdateAtAttribute]: row[UpdateAtAttribute],
                 });
             }
-            if (row[Entity_1.CreateAtAttribute]) {
+            if (row[CreateAtAttribute]) {
                 Object.assign(result, {
-                    [Entity_1.CreateAtAttribute]: row[Entity_1.CreateAtAttribute],
+                    [CreateAtAttribute]: row[CreateAtAttribute],
                 });
             }
             rows2.push(result);
@@ -1417,7 +1415,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                 }
             }
             else {
-                throw new Exception_1.OakRowUnexistedException([{
+                throw new OakRowUnexistedException([{
                         entity,
                         selection: {
                             data: projection,
@@ -1470,9 +1468,9 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                     }
                 }
                 else {
-                    (0, assert_1.assert)([0, 1].includes(rel));
+                    assert([0, 1].includes(rel));
                     result2[k] = row2[k];
-                    (0, assert_1.assert)(['string', 'number', 'boolean'].includes(typeof row2[k]));
+                    assert(['string', 'number', 'boolean'].includes(typeof row2[k]));
                     key += `${row2[k]}`;
                     values.push(row2[k]);
                 }
@@ -1491,7 +1489,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
         for (const row of rows) {
             for (const op of ops) {
                 const { values } = this.mappingProjectionOnRow(entity, row, aggregationData[op]);
-                (0, assert_1.assert)(values.length === 1, `聚合运算中，${op}的目标属性多于1个`);
+                assert(values.length === 1, `聚合运算中，${op}的目标属性多于1个`);
                 if (op.startsWith('#max')) {
                     if (![undefined, null].includes(values[0]) && (!result.hasOwnProperty(op) || result[op] < values[0])) {
                         result[op] = values[0];
@@ -1504,7 +1502,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                 }
                 else if (op.startsWith('#sum')) {
                     if (![undefined, null].includes(values[0])) {
-                        (0, assert_1.assert)(typeof values[0] === 'number', '只有number类型的属性才可以计算sum');
+                        assert(typeof values[0] === 'number', '只有number类型的属性才可以计算sum');
                         if (!result.hasOwnProperty(op)) {
                             result[op] = values[0];
                         }
@@ -1524,9 +1522,9 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                     }
                 }
                 else {
-                    (0, assert_1.assert)(op.startsWith('#avg'));
+                    assert(op.startsWith('#avg'));
                     if (![undefined, null].includes(values[0])) {
-                        (0, assert_1.assert)(typeof values[0] === 'number', '只有number类型的属性才可以计算avg');
+                        assert(typeof values[0] === 'number', '只有number类型的属性才可以计算avg');
                         if (!result.hasOwnProperty(op)) {
                             result[op] = {
                                 total: values[0],
@@ -1559,7 +1557,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
     formAggregation(entity, rows, aggregationData) {
         const { "#aggr": aggrExpr } = aggregationData;
         if (aggrExpr) {
-            const groups = (0, lodash_1.groupBy)(rows, (row) => {
+            const groups = groupBy(rows, (row) => {
                 const { key } = this.mappingProjectionOnRow(entity, row, aggrExpr);
                 return key;
             });
@@ -1575,25 +1573,25 @@ class TreeStore extends CascadeStore_1.CascadeStore {
         return [aggr];
     }
     selectSync(entity, selection, context, option) {
-        (0, assert_1.assert)(context.getCurrentTxnId());
+        assert(context.getCurrentTxnId());
         const result = super.selectSync(entity, selection, context, option);
         // 在这里再计算所有的表达式
         result.forEach((ele) => this.formExprInResult(entity, selection.data, ele, {}, context));
         return result;
     }
     async selectAsync(entity, selection, context, option) {
-        (0, assert_1.assert)(context.getCurrentTxnId());
+        assert(context.getCurrentTxnId());
         const result = await super.selectAsync(entity, selection, context, option);
         // 在这里再计算所有的表达式
         result.forEach((ele) => this.formExprInResult(entity, selection.data, ele, {}, context));
         return result;
     }
     aggregateSync(entity, aggregation, context, option) {
-        (0, assert_1.assert)(context.getCurrentTxnId());
+        assert(context.getCurrentTxnId());
         const { data, filter, sorter, indexFrom, count } = aggregation;
         const p = {};
         for (const k in data) {
-            Object.assign(p, (0, lodash_1.cloneDeep)(data[k]));
+            Object.assign(p, cloneDeep(data[k]));
         }
         const selection = {
             data: p,
@@ -1611,11 +1609,11 @@ class TreeStore extends CascadeStore_1.CascadeStore {
         return this.formAggregation(entity, result, aggregation.data);
     }
     async aggregateAsync(entity, aggregation, context, option) {
-        (0, assert_1.assert)(context.getCurrentTxnId());
+        assert(context.getCurrentTxnId());
         const { data, filter, sorter, indexFrom, count } = aggregation;
         const p = {};
         for (const k in data) {
-            Object.assign(p, (0, lodash_1.cloneDeep)(data[k]));
+            Object.assign(p, cloneDeep(data[k]));
         }
         const selection = {
             data: p,
@@ -1656,7 +1654,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
     }
     addToTxnNode(node, context, action) {
         const txnNode = this.activeTxnDict[context.getCurrentTxnId()];
-        (0, assert_1.assert)(txnNode);
+        assert(txnNode);
         if (!node.$nextNode) {
             // 如果nextNode有值，说明这个结点已经在链表中了
             if (txnNode.nodeHeader) {
@@ -1674,7 +1672,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
     }
     beginSync() {
         const uuid = `${Math.random()}`;
-        (0, assert_1.assert)(!this.activeTxnDict.hasOwnProperty(uuid));
+        assert(!this.activeTxnDict.hasOwnProperty(uuid));
         Object.assign(this.activeTxnDict, {
             [uuid]: {
                 create: 0,
@@ -1688,7 +1686,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
     commitCallbacks = [];
     onCommit(callback) {
         this.commitCallbacks.push(callback);
-        return () => (0, lodash_1.pull)(this.commitCallbacks, callback);
+        return () => pull(this.commitCallbacks, callback);
     }
     addToOperationResult(result, entity, action) {
         if (result[entity]) {
@@ -1710,13 +1708,13 @@ class TreeStore extends CascadeStore_1.CascadeStore {
         }
     }
     commitSync(uuid) {
-        (0, assert_1.assert)(this.activeTxnDict.hasOwnProperty(uuid), uuid);
+        assert(this.activeTxnDict.hasOwnProperty(uuid), uuid);
         let node = this.activeTxnDict[uuid].nodeHeader;
         const result = {};
         while (node) {
             const node2 = node.$nextNode;
             if (node.$txnId === uuid) {
-                (0, assert_1.assert)(node.$path);
+                assert(node.$path);
                 const entity = node.$path?.split('.')[0];
                 if (node.$next) {
                     // create/update
@@ -1727,21 +1725,21 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                     else {
                         this.addToOperationResult(result, entity, 'update');
                     }
-                    (0, lodash_1.unset)(node, '$txnId');
-                    (0, lodash_1.unset)(node, '$next');
-                    (0, lodash_1.unset)(node, '$path');
-                    (0, lodash_1.unset)(node, '$nextNode');
+                    unset(node, '$txnId');
+                    unset(node, '$next');
+                    unset(node, '$path');
+                    unset(node, '$nextNode');
                 }
                 else {
                     // remove
                     this.addToOperationResult(result, entity, 'remove');
-                    (0, lodash_1.unset)(this.store, node.$path);
-                    (0, lodash_1.unset)(node, '$txnId');
+                    unset(this.store, node.$path);
+                    unset(node, '$txnId');
                 }
             }
             else {
                 // 同一行被同一事务更新多次
-                (0, assert_1.assert)(node.$txnId === undefined);
+                assert(node.$txnId === undefined);
             }
             node = node2;
         }
@@ -1755,32 +1753,32 @@ class TreeStore extends CascadeStore_1.CascadeStore {
         for (const waiter of this.activeTxnDict[uuid].waitList) {
             waiter.fn();
         }
-        (0, lodash_1.unset)(this.activeTxnDict, uuid);
+        unset(this.activeTxnDict, uuid);
         this.commitCallbacks.forEach(callback => callback(result));
     }
     rollbackSync(uuid) {
-        (0, assert_1.assert)(this.activeTxnDict.hasOwnProperty(uuid));
+        assert(this.activeTxnDict.hasOwnProperty(uuid));
         let node = this.activeTxnDict[uuid].nodeHeader;
         while (node) {
             const node2 = node.$nextNode;
             if (node.$txnId === uuid) {
                 if (node.$current) {
                     // update/remove
-                    (0, lodash_1.unset)(node, '$txnId');
-                    (0, lodash_1.unset)(node, '$next');
-                    (0, lodash_1.unset)(node, '$path');
-                    (0, lodash_1.unset)(node, '$nextNode');
+                    unset(node, '$txnId');
+                    unset(node, '$next');
+                    unset(node, '$path');
+                    unset(node, '$nextNode');
                 }
                 else {
                     // create
-                    (0, assert_1.assert)(node.$path);
-                    (0, lodash_1.unset)(this.store, node.$path);
-                    (0, lodash_1.unset)(node, '$txnId');
+                    assert(node.$path);
+                    unset(this.store, node.$path);
+                    unset(node, '$txnId');
                 }
             }
             else {
                 // 该结点被同一事务反复处理
-                (0, assert_1.assert)(node.$txnId === undefined);
+                assert(node.$txnId === undefined);
             }
             node = node2;
         }
@@ -1788,7 +1786,7 @@ class TreeStore extends CascadeStore_1.CascadeStore {
         for (const waiter of this.activeTxnDict[uuid].waitList) {
             waiter.fn();
         }
-        (0, lodash_1.unset)(this.activeTxnDict, uuid);
+        unset(this.activeTxnDict, uuid);
     }
     async beginAsync() {
         return this.beginSync();
@@ -1906,11 +1904,10 @@ class TreeStore extends CascadeStore_1.CascadeStore {
                     break;
                 }
                 default: {
-                    (0, assert_1.assert)(false);
+                    assert(false);
                 }
             }
         }
         this.commitCallbacks.forEach(callback => callback(result));
     }
 }
-exports.default = TreeStore;
