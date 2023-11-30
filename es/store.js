@@ -493,7 +493,7 @@ export default class TreeStore extends CascadeStore {
                 // json中的多值查询
                 const array = value instanceof Array ? value : [value];
                 return (row) => {
-                    const data = get(row, path);
+                    const data = path ? get(row, path) : row;
                     return differenceBy(array, data, (value) => {
                         if (typeof value === 'object') {
                             return JSON.stringify(value);
@@ -506,7 +506,7 @@ export default class TreeStore extends CascadeStore {
                 // json中的多值查询
                 const array = value instanceof Array ? value : [value];
                 return (row) => {
-                    const data = get(row, path);
+                    const data = path ? get(row, path) : row;
                     return intersectionBy(array, data, (value) => {
                         if (typeof value === 'object') {
                             return JSON.stringify(value);
