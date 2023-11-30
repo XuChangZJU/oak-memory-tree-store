@@ -2,7 +2,7 @@ import { v4 } from 'uuid';
 import { describe, it } from 'mocha';
 import { EntityDict, storageSchema } from 'oak-domain/lib/base-app-domain';
 import { generateNewId } from 'oak-domain/lib/utils/uuid';
-import { randomName } from 'oak-domain/lib/utils/string';
+import { randomPrefixedString } from 'oak-domain/lib/utils/string';
 import assert from 'assert';
 import TreeStore, { TreeStoreSelectOption } from '../src/store';
 import { FrontendRuntimeContext, FrontendStore } from './Context';
@@ -244,11 +244,13 @@ describe('基础测试', function () {
         const context = new FrontendRuntimeContext(store);
         context.begin();
 
-        const created = store.operate('modiEntity', {
+        const id1 = generateNewId();
+        const id2 = generateNewId();
+        store.operate('modiEntity', {
             id: generateNewId(),
             action: 'create',
             data: [{
-                id: generateNewId(),
+                id: id1,
                 entity: 'user-id-1',
                 entityId: 'user-id-1',
                 modi: {
@@ -263,7 +265,7 @@ describe('基础测试', function () {
                     }
                 }
             }, {
-                id: generateNewId(),
+                id: id2,
                 entity: 'user',
                 entityId: 'user-id-1',
                 modi: {
@@ -288,6 +290,9 @@ describe('基础测试', function () {
             },
             filter: {
                 // '#id': 'node-123',
+                id: {
+                    $in: [id1, id2],
+                },
                 $expr: {
                     $ne: [{
                         '#attr': 'entity',
@@ -300,6 +305,30 @@ describe('基础测试', function () {
 
         //  console.log(modiEntities);
         assert(modiEntities.length === 1);
+
+        const modiEntities2 = store.select('modiEntity', {
+            data: {
+                id: 1,
+                entity: 1,
+                entityId: 1,
+            },
+            filter: {
+                id: {
+                    $in: [id1, id2],
+                },
+                $expr: {
+                    $eq: [
+                        {
+                            $mod: [{
+                                '#attr': '$$seq$$',
+                            }, 2]
+                        },
+                        0
+                    ],
+                },
+            },
+        }, context, {});
+        // memory-store中的$$seq$$是随机生成的，这里只能debug看下对不对，目前看是对的
         context.commit();
     });
 
@@ -1155,6 +1184,61 @@ describe('基础测试', function () {
             }
         }, context, {});
 
+        /**
+         * 带logic条件查询
+         */
+        const row8 = store.select('oper', {
+            data: {
+                id: 1,
+                data: {
+                    name: 1,
+                    price: 1,
+                },
+            },
+            filter: {
+                id,
+                data: {
+                    $or: [
+                        {
+                            name: {
+                                $includes: 'xc',
+                            }                            
+                        },
+                        {
+                            name: {
+                                $includes: 'xzw',
+                            }
+                        }
+                    ],
+                    price: {
+                        $overlaps: [200, 400, 800],
+                    },
+                }
+            }
+        }, context, {});
+
+        /**
+         * object属性的等值查询
+         */
+        const row9 = store.select('oper', {
+            data: {
+                id: 1,
+                data: {
+                    name: 1,
+                    price: 1,
+                },
+            },
+            filter: {
+                id,
+                action: 'test',
+                targetEntity: 'bbb',
+                data: JSON.stringify({
+                    name: 'xc',
+                    price: [100, 400, 1000],
+                })
+            }
+        }, context, {});
+
         context.commit();
         assert(row.length === 1);
         assert(row2.length === 0);
@@ -1163,6 +1247,8 @@ describe('基础测试', function () {
         assert(row5.length === 1);
         assert(row6.length === 0);
         assert(row7.length === 1);
+        assert(row8.length === 1);
+        assert(row9.length === 1);
         // console.log(JSON.stringify(row7));
     });
 });
@@ -1181,8 +1267,8 @@ describe('性能测试', function () {
             const id = generateNewId();
             const user: EntityDict['user']['CreateSingle']['data'] = {
                 id,
-                name: randomName('user'),
-                nickname: randomName('nick'),
+                name: randomPrefixedString('user'),
+                nickname: randomPrefixedString('nick'),
             };
             users.push(user);
             // 每人再介绍10个人
@@ -1191,8 +1277,8 @@ describe('性能测试', function () {
                 const idd = v4();
                 const user: EntityDict['user']['CreateSingle']['data'] = {
                     id: idd,
-                    name: randomName('user'),
-                    nickname: randomName('nick'),
+                    name: randomPrefixedString('user'),
+                    nickname: randomPrefixedString('nick'),
                     refId: id,
                 };
                 users.push(user);
@@ -1203,8 +1289,8 @@ describe('性能测试', function () {
                 while (iter3--) {
                     const user: EntityDict['user']['CreateSingle']['data'] = {
                         id: v4(),
-                        name: randomName('user'),
-                        nickname: randomName('nick'),
+                        name: randomPrefixedString('user'),
+                        nickname: randomPrefixedString('nick'),
                         refId: idd,
                     };
                     users.push(user);
