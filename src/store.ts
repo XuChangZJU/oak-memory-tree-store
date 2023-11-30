@@ -53,6 +53,9 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             [ID: string]: RowNode;
         };
     };
+    private seq: {
+        [T in keyof ED]?: number;
+    }
     private activeTxnDict: {
         [T: string]: {
             nodeHeader?: RowNode;
@@ -72,6 +75,26 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         commit: number;
     };
 
+    private getNextSeq(entity: keyof ED) {
+        if (this.seq[entity]) {
+            const seq = this.seq[entity];
+            this.seq[entity] ++;
+            return seq;
+        }
+        this.seq[entity] = 2;
+        return 1;
+    }
+
+    private setMaxSeq(entity: keyof ED, seq: number) {
+        if (this.seq[entity]) {
+            if (this.seq[entity] < seq) {
+                this.seq[entity] = seq;
+            }
+        }
+        else {
+            this.seq[entity] = seq;
+        }
+    }
     /* treeStore改成同步以后不会再出现
      private async waitOnTxn(id: string, context: Cxt) {
         // 先检查自己的等待者中有没有id，以避免死锁
@@ -140,9 +163,13 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     });
                 }
                 if (!row.$$seq$$) {
+                    const seq = this.getNextSeq(entity);
                     Object.assign(row, {
-                        $$seq$$: Math.ceil((Math.random() + 1000) * 100),
+                        $$seq$$: seq,
                     });
+                }
+                else {
+                    this.setMaxSeq(entity, row.$$seq$$);
                 }
                 assert(row.id && !row.id.includes('.'));
                 set(this.store, `${entity}.${row.id}.$current`, row);
@@ -181,6 +208,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             remove: 0,
             commit: 0,
         };
+        this.seq = {};
     }
 
     private constructRow<Cxt extends Context, OP extends TreeStoreSelectOption>(node: RowNode, context: Cxt, option?: OP) {
@@ -1346,10 +1374,8 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     throw new OakCongruentRowExists(entity as string, this.constructRow(node, context, option)!);
                 }
                 if (!data.$$seq$$) {
-                    // tree-store随意生成即可
-                    Object.assign(data, {
-                        $$seq$$: Math.ceil((Math.random() + 1000) * 100),
-                    });
+                    const seq = this.getNextSeq(entity);
+                    data.$$seq$$ = seq;
                 }
                 const node2: RowNode = {
                     $txnId: context.getCurrentTxnId()!,
