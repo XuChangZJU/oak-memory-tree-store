@@ -1,6 +1,6 @@
 import {
     cloneDeep, get, groupBy, set, unset,
-    difference, intersection, pull, pick
+    differenceBy, intersectionBy, pull, pick
 } from 'oak-domain/lib/utils/lodash';
 import { assert } from 'oak-domain/lib/utils/assert';
 import {
@@ -603,7 +603,12 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 const array = value instanceof Array ? value : [value];
                 return (row) => {
                     const data = get(row, path);
-                    return difference(array, data).length === 0 || obscurePass(data, option);
+                    return differenceBy(array, data, (value: any) => {
+                        if (typeof value === 'object') {
+                            return JSON.stringify(value);
+                        }
+                        return value;
+                    }).length === 0 || obscurePass(data, option);
                 };
             }
             case '$overlaps': {
@@ -611,7 +616,12 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 const array = value instanceof Array ? value : [value];
                 return (row) => {
                     const data = get(row, path);
-                    return intersection(array, data).length > 0 || obscurePass(data, option);
+                    return intersectionBy(array, data,  (value: any) => {
+                        if (typeof value === 'object') {
+                            return JSON.stringify(value);
+                        }
+                        return value;
+                    }).length > 0 || obscurePass(data, option);
                 };
             }
             default: {
@@ -668,7 +678,8 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                         );
                     }
                     else {
-                        const path2 = path ? `${path}.${attr}` : attr;
+                        const attr2 = attr.startsWith('.') ? attr.slice(1) : attr;
+                        const path2 = path ? `${path}.${attr2}` : attr2;
                         if (typeof p[attr] !== 'object') {
                             fns2.push(this.translatePredicate(path2, '$eq', filter[attr]));
                         }

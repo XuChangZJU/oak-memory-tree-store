@@ -1251,6 +1251,51 @@ describe('基础测试', function () {
         assert(row9.length === 1);
         // console.log(JSON.stringify(row7));
     });
+
+    it('[1.13]json escapes', () => {
+        const store = new FrontendStore(storageSchema);
+        const context = new FrontendRuntimeContext(store);
+        context.begin();
+
+        const id = generateNewId();
+        store.operate('oper', {
+            id: generateNewId(),
+            action: 'create',
+            data: {
+                id,
+                action: 'test',
+                data: {
+                    $or: [{
+                        name: 'xc',
+                    }, {
+                        name: {
+                            $includes: 'xc',
+                        }
+                    }],
+                },
+                targetEntity: 'bbb',
+            }
+        }, context, {});
+
+        const rows1 = store.select('oper', {
+            data: {
+                id: 1,
+            },
+            filter: {
+                id,
+                data: {
+                    '.$or': {
+                        $contains: {
+                            name: 'xc',
+                        },
+                    },
+                },
+            },
+        }, context, {});
+
+        assert(rows1.length === 1);
+        context.commit();
+    });
 });
 
 
