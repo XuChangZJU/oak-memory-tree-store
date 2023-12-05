@@ -2046,9 +2046,9 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         return uuid;
     }
 
-    private commitCallbacks: Array<(result: OperationResult<ED>) => void> = [];
+    private commitCallbacks: Array<(result: OperationResult<ED>) => Promise<void>> = [];
 
-    onCommit(callback: (result: OperationResult<ED>) => void) {
+    onCommit(callback: (result: OperationResult<ED>) => Promise<void>) {
         this.commitCallbacks.push(callback);
         return () => pull(this.commitCallbacks, callback);
     }
@@ -2073,7 +2073,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         }
     }
 
-    commitSync(uuid: string) {
+    private commitLogic(uuid: string) {
         assert(this.activeTxnDict.hasOwnProperty(uuid), uuid);
         let node = this.activeTxnDict[uuid].nodeHeader;
 
@@ -2123,7 +2123,12 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         }
 
         unset(this.activeTxnDict, uuid);
+        return result;
+    }
 
+    commitSync(uuid: string) {
+        const result = this.commitLogic(uuid);
+        // 这里无法等待callback完成，callback最好自身保证顺序（前端cache应当具备的特征）
         this.commitCallbacks.forEach(
             callback => callback(result)
         );
@@ -2167,7 +2172,10 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
     }
 
     async commitAsync(uuid: string) {
-        return this.commitSync(uuid);
+        const result = this.commitLogic(uuid);
+        for (const fn of this.commitCallbacks) {
+            await fn(result);
+        }
     }
 
     async rollbackAsync(uuid: string) {
@@ -2287,8 +2295,9 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             }
         }
 
-        this.commitCallbacks.forEach(
+        // 在txn提交时应该call过了，这里看上去是多余的
+       /*  this.commitCallbacks.forEach(
             callback => callback(result)
-        );
+        ); */
     }
 }
