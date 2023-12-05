@@ -1229,24 +1229,45 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     }
                     return -1;
                 }
-                if (v1 > v2) {
-                    if (direction === 'desc') {
-                        return -1;
-                    }
-                    else {
-                        return 1;
-                    }
-                }
-                else if (v1 < v2) {
-                    if (direction === 'desc') {
-                        return 1;
-                    }
-                    else {
-                        return -1;
-                    }
+                
+                const attrDef = this.getSchema()[entity2].attributes[attr];
+                // 处理enum，现在enum是按定义enum的顺序从小到大排列
+                if (attrDef?.type === 'enum') {
+                    const enums = attrDef!.enumeration!;
+                    const i1 = enums.indexOf(v1);
+                    const i2 = enums.indexOf(v2);
+                    assert(i1 >= 0 && i2 >= 0);
+                    return direction === 'asc' ? i1 - i2 : i2 - i1;
                 }
                 else {
-                    return 0;
+                    // createAt为1时被认为是最大的（新建）
+                    if (['$$createAt$$', '$$updateAt$$'].includes(attr)) {
+                        if (v1 === 1) {
+                            return direction === 'asc' ? 1 : -1;
+                        }
+                        else if (v2 === 1) {
+                            return direction === 'asc' ? -1 : 1;
+                        }
+                    }
+                    if (v1 > v2) {
+                        if (direction === 'desc') {
+                            return -1;
+                        }
+                        else {
+                            return 1;
+                        }
+                    }
+                    else if (v1 < v2) {
+                        if (direction === 'desc') {
+                            return 1;
+                        }
+                        else {
+                            return -1;
+                        }
+                    }
+                    else {
+                        return 0;
+                    }
                 }
             }
             else {
@@ -2025,9 +2046,9 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         return uuid;
     }
 
-    private commitCallbacks: Array<(result: OperationResult<ED>) => void> = [];
+    private commitCallbacks: Array<(result: OperationResult<ED>) => Promise<void>> = [];
 
-    onCommit(callback: (result: OperationResult<ED>) => void) {
+    onCommit(callback: (result: OperationResult<ED>) => Promise<void>) {
         this.commitCallbacks.push(callback);
         return () => pull(this.commitCallbacks, callback);
     }
@@ -2052,7 +2073,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         }
     }
 
-    commitSync(uuid: string) {
+    private commitLogic(uuid: string) {
         assert(this.activeTxnDict.hasOwnProperty(uuid), uuid);
         let node = this.activeTxnDict[uuid].nodeHeader;
 
@@ -2102,7 +2123,12 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         }
 
         unset(this.activeTxnDict, uuid);
+        return result;
+    }
 
+    commitSync(uuid: string) {
+        const result = this.commitLogic(uuid);
+        // 这里无法等待callback完成，callback最好自身保证顺序（前端cache应当具备的特征）
         this.commitCallbacks.forEach(
             callback => callback(result)
         );
@@ -2146,7 +2172,10 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
     }
 
     async commitAsync(uuid: string) {
-        return this.commitSync(uuid);
+        const result = this.commitLogic(uuid);
+        for (const fn of this.commitCallbacks) {
+            await fn(result);
+        }
     }
 
     async rollbackAsync(uuid: string) {
@@ -2266,8 +2295,9 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             }
         }
 
-        this.commitCallbacks.forEach(
+        // 在txn提交时应该call过了，这里看上去是多余的
+       /*  this.commitCallbacks.forEach(
             callback => callback(result)
-        );
+        ); */
     }
 }
