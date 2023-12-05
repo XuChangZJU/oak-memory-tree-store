@@ -1,6 +1,6 @@
 import {
     cloneDeep, get, groupBy, set, unset,
-    difference, intersection, pull, pick
+    differenceBy, intersectionBy, pull, pick
 } from 'oak-domain/lib/utils/lodash';
 import { assert } from 'oak-domain/lib/utils/assert';
 import {
@@ -53,6 +53,9 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             [ID: string]: RowNode;
         };
     };
+    private seq: {
+        [T in keyof ED]?: number;
+    }
     private activeTxnDict: {
         [T: string]: {
             nodeHeader?: RowNode;
@@ -72,6 +75,26 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         commit: number;
     };
 
+    private getNextSeq(entity: keyof ED) {
+        if (this.seq[entity]) {
+            const seq = this.seq[entity];
+            this.seq[entity] ++;
+            return seq;
+        }
+        this.seq[entity] = 2;
+        return 1;
+    }
+
+    private setMaxSeq(entity: keyof ED, seq: number) {
+        if (this.seq[entity]) {
+            if (this.seq[entity] < seq) {
+                this.seq[entity] = seq;
+            }
+        }
+        else {
+            this.seq[entity] = seq;
+        }
+    }
     /* treeStore改成同步以后不会再出现
      private async waitOnTxn(id: string, context: Cxt) {
         // 先检查自己的等待者中有没有id，以避免死锁
@@ -140,9 +163,13 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     });
                 }
                 if (!row.$$seq$$) {
+                    const seq = this.getNextSeq(entity);
                     Object.assign(row, {
-                        $$seq$$: `${Math.ceil((Math.random() + 1000) * 100)}`,
+                        $$seq$$: seq,
                     });
+                }
+                else {
+                    this.setMaxSeq(entity, row.$$seq$$);
                 }
                 assert(row.id && !row.id.includes('.'));
                 set(this.store, `${entity}.${row.id}.$current`, row);
@@ -181,6 +208,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             remove: 0,
             commit: 0,
         };
+        this.seq = {};
     }
 
     private constructRow<Cxt extends Context, OP extends TreeStoreSelectOption>(node: RowNode, context: Cxt, option?: OP) {
@@ -602,16 +630,26 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 // json中的多值查询
                 const array = value instanceof Array ? value : [value];
                 return (row) => {
-                    const data = get(row, path);
-                    return difference(array, data).length === 0 || obscurePass(data, option);
+                    const data = path ? get(row, path) : row;
+                    return differenceBy(array, data, (value: any) => {
+                        if (typeof value === 'object') {
+                            return JSON.stringify(value);
+                        }
+                        return value;
+                    }).length === 0 || obscurePass(data, option);
                 };
             }
             case '$overlaps': {
                 // json中的多值查询
                 const array = value instanceof Array ? value : [value];
                 return (row) => {
-                    const data = get(row, path);
-                    return intersection(array, data).length > 0 || obscurePass(data, option);
+                    const data = path ? get(row, path) : row;
+                    return intersectionBy(array, data,  (value: any) => {
+                        if (typeof value === 'object') {
+                            return JSON.stringify(value);
+                        }
+                        return value;
+                    }).length > 0 || obscurePass(data, option);
                 };
             }
             default: {
@@ -622,44 +660,65 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
 
     private translateObjectPredicate(filter: Record<string, any>) {
         const fns: Array<(value: any) => boolean> = [];
-        const translatePredicateInner = (p: Record<string, any>, path: string) => {
-            const predicate = Object.keys(p)[0];
-            if (predicate.startsWith('$')) {
-                assert(Object.keys(p).length === 1);
-                fns.push(
-                    this.translatePredicate(path, predicate, p[predicate])
+        const translatePredicateInner = (p: Record<string, any> | Array<any>, path: string, fns2: Array<(value: any) => boolean>) => {
+            if (p instanceof Array) {
+                p.forEach(
+                    (ele: any, idx) => {
+                        const path2 = `${path}[${idx}]`;
+                        if (typeof ele !== 'object') {
+                            if (![null, undefined].includes(ele)) {
+                                fns2.push(this.translatePredicate(path2, '$eq', ele));
+                            }
+                        }
+                        else {
+                            translatePredicateInner(ele, path2, fns2);
+                        }
+                    }
                 );
             }
             else {
-                if (p instanceof Array) {
-                    p.forEach(
-                        (ele, idx) => {
-                            const path2 = `${path}[${idx}]`;
-                            if (typeof ele !== 'object') {
-                                if (![null, undefined].includes(ele)) {
-                                    fns.push(this.translatePredicate(path2, '$eq', ele));
+                for (const attr in p) {
+                    if (attr === '$and') {
+                        p[attr].forEach(
+                            (p2: Record<string, any>) => translatePredicateInner(p2, path, fns2)
+                        );
+                    }
+                    else if (attr === '$or') {
+                        const fnsOr: Array<(value: any) => boolean> = [];
+                        p[attr].forEach(
+                            (p2: Record<string, any>) => translatePredicateInner(p2, path, fnsOr)
+                        );
+                        fns2.push(
+                            (value) => {
+                                for (const fnOr of fnsOr) {
+                                    if (fnOr(value)) {
+                                        return true;
+                                    }
                                 }
+                                return false;
                             }
-                            else {
-                                translatePredicateInner(ele, path2);
-                            }
-                        }
-                    );
-                }
-                else {
-                    for (const attr in p) {
-                        const path2 = path ? `${path}.${attr}` : attr;
+                        );
+                    }
+                    else if (attr.startsWith('$')) {
+                        assert(Object.keys(p).length === 1);
+                        fns2.push(
+                            this.translatePredicate(path, attr, p[attr])
+                        );
+                    }
+                    else {
+                        const attr2 = attr.startsWith('.') ? attr.slice(1) : attr;
+                        const path2 = path ? `${path}.${attr2}` : attr2;
                         if (typeof p[attr] !== 'object') {
-                            fns.push(this.translatePredicate(path2, '$eq', filter[attr]));
+                            fns2.push(this.translatePredicate(path2, '$eq', filter[attr]));
                         }
                         else {
-                            translatePredicateInner(p[attr], path2);
+                            translatePredicateInner(p[attr], path2, fns2);
                         }
                     }
                 }
             }
         };
-        translatePredicateInner(filter, '');
+        translatePredicateInner(filter, '', fns);
         return (value: any) => {
             for (const fn of fns) {
                 if (!fn(value)) {
@@ -682,110 +741,18 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         function obscurePassLocal(row: any) {
             return obscurePass(row[attr], option);
         }
-        if (typeof filter !== 'object') {
-            return (node) => {
-                const row = this.constructRow(node, context, option);
-                return row ? (row as any)[attr] === filter || obscurePassLocal(row) : false;
-            };
-        }
-        else {
-            const predicate = Object.keys(filter)[0];
-            if (predicate.startsWith('$')) {
+        if (!['object', 'array'].includes(this.getSchema()[entity].attributes[attr]?.type)) {
+            if (typeof filter !== 'object') {
+                return (node) => {
+                    const row = this.constructRow(node, context, option);
+                    return row ? (row as any)[attr] === filter || obscurePassLocal(row) : false;
+                };
+            }
+            else {
+                const predicate = Object.keys(filter)[0];
+                assert(Object.keys(filter).length === 1 && predicate.startsWith('$'));
                 if (['$in', '$nin'].includes(predicate) && !((filter as Record<string, any>)[predicate] instanceof Array)) {
                     throw new Error('子查询已经改用一对多的外键连接方式');
-                    const inData = (filter as Record<string, any>)[predicate];
-                    if (predicate === '$in') {
-                        // 如果是obscure，则返回的集合中有没有都不能否决“可能有”，所以可以直接返回true
-                        if (option?.obscure) {
-                            return () => true;
-                        }
-                        else {
-                            // 这里只有当子查询中的filter不包含引用外部的子查询时才可以提前计算，否则必须等到执行时再计算
-                            // 子查询查询的行不用返回，和数据库的行为保持一致
-                            try {
-                                const legalSets = (this.selectAbjointRow(inData.entity, inData, context, { dontCollect: true })).map(
-                                    (ele) => {
-                                        const { data } = inData;
-                                        const key = Object.keys(data)[0];
-                                        return (ele as any)[key];
-                                    }
-                                );
-
-                                return (node) => {
-                                    const row = this.constructRow(node, context, option);
-                                    if (!row) {
-                                        return false;
-                                    }
-                                    return legalSets.includes((row as any)[attr]);
-                                };
-                            }
-                            catch (err) {
-                                if (err instanceof OakExpressionUnresolvedException) {
-                                    return (node, nodeDict) => {
-                                        const row = this.constructRow(node, context, option);
-                                        if (!row) {
-                                            return false;
-                                        }
-                                        const option2 = Object.assign({}, option, { nodeDict });
-                                        const legalSets = this.selectAbjointRow(inData.entity, inData, context, option2).map(
-                                            (ele) => {
-                                                const { data } = inData as ED[keyof ED]['Selection'];
-                                                const key = Object.keys(data)[0];
-                                                return (ele as any)[key];
-                                            }
-                                        );
-                                        return legalSets.includes((row as any)[attr]);
-                                    }
-                                }
-                                else {
-                                    throw err;
-                                }
-                            }
-                        }
-                    }
-                    else {
-                        // obscure对nin没有影响，如果返回的子查询结果中包含此行就一定是false，否则一定为true（obscure只考虑数据不完整，不考虑不准确），但若相应属性为undefined则任然可以认为true
-                        // 这里只有当子查询中的filter不包含引用外部的子查询时才可以提前计算，否则必须等到执行时再计算
-                        // 子查询查询的行不用返回，和数据库的行为保持一致
-                        try {
-                            const legalSets = this.selectAbjointRow(inData.entity, inData, context, { dontCollect: true }).map(
-                                (ele) => {
-                                    const { data } = inData as ED[keyof ED]['Selection'];
-                                    const key = Object.keys(data)[0];
-                                    return (ele as any)[key];
-                                }
-                            );
-                            return (node) => {
-                                const row = this.constructRow(node, context, option);
-                                if (!row) {
-                                    return false;
-                                }
-                                return !legalSets.includes((row as any)[attr]) || obscurePassLocal(row);
-                            };
-                        }
-                        catch (err) {
-                            if (err instanceof OakExpressionUnresolvedException) {
-                                return (node, nodeDict) => {
-                                    const row = this.constructRow(node, context, option);
-                                    if (!row) {
-                                        return false;
-                                    }
-                                    const option2 = Object.assign({}, option, { nodeDict });
-                                    const legalSets = this.selectAbjointRow(inData.entity, inData, context, option2).map(
-                                        (ele) => {
-                                            const { data } = inData as ED[keyof ED]['Selection'];
-                                            const key = Object.keys(data)[0];
-                                            return (ele as any)[key];
-                                        }
-                                    );
-                                    return !legalSets.includes((row as any)[attr]) || obscurePassLocal(row);
-                                };
-                            }
-                            else {
-                                throw err;
-                            }
-                        }
-                    }
                 }
                 else {
                     const fn = this.translatePredicate(attr, predicate, (filter as Record<string, any>)[predicate], option);
@@ -798,9 +765,21 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     };
                 }
             }
+        }
+        else {
+            // 对象的内部查询
+            if (typeof filter !== 'object') {
+                // 支持filter全值相等的查询方式
+                assert(typeof filter === 'string');
+                return (node) => {
+                    const row = this.constructRow(node, context, option);
+                    if (!row) {
+                        return false;
+                    }
+                    return row.hasOwnProperty(attr) && JSON.stringify((row as any)[attr]) === filter;
+                }
+            }
             else {
-                // 对象的内部查询
-                assert(this.getSchema()[entity].attributes[attr]?.type === 'object');
                 const fn = this.translateObjectPredicate(filter);
                 return (node) => {
                     const row = this.constructRow(node, context, option);
@@ -1229,7 +1208,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     }
                     return -1;
                 }
-                
+
                 const attrDef = this.getSchema()[entity2].attributes[attr];
                 // 处理enum，现在enum是按定义enum的顺序从小到大排列
                 if (attrDef?.type === 'enum') {
@@ -1395,10 +1374,8 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     throw new OakCongruentRowExists(entity as string, this.constructRow(node, context, option)!);
                 }
                 if (!data.$$seq$$) {
-                    // tree-store随意生成即可
-                    Object.assign(data, {
-                        $$seq$$: `${Math.ceil((Math.random() + 1000) * 100)}`,
-                    });
+                    const seq = this.getNextSeq(entity);
+                    data.$$seq$$ = seq;
                 }
                 const node2: RowNode = {
                     $txnId: context.getCurrentTxnId()!,

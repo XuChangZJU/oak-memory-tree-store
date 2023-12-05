@@ -14,8 +14,11 @@ export interface TreeStoreOperateOption extends OperateOption {
 }
 export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends CascadeStore<ED> {
     private store;
+    private seq;
     private activeTxnDict;
     private stat;
+    private getNextSeq;
+    private setMaxSeq;
     protected supportMultipleCreate(): boolean;
     protected supportManyToOneJoin(): boolean;
     resetInitialData(data: {
