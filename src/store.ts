@@ -78,7 +78,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
     private getNextSeq(entity: keyof ED) {
         if (this.seq[entity]) {
             const seq = this.seq[entity];
-            this.seq[entity] ++;
+            this.seq[entity]! ++;
             return seq;
         }
         this.seq[entity] = 2;
@@ -87,7 +87,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
 
     private setMaxSeq(entity: keyof ED, seq: number) {
         if (this.seq[entity]) {
-            if (this.seq[entity] < seq) {
+            if (this.seq[entity]! < seq) {
                 this.seq[entity] = seq;
             }
         }
@@ -709,7 +709,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                         const attr2 = attr.startsWith('.') ? attr.slice(1) : attr;
                         const path2 = path ? `${path}.${attr2}` : attr2;
                         if (typeof p[attr] !== 'object') {
-                            fns2.push(this.translatePredicate(path2, '$eq', filter[attr]));
+                            fns2.push(this.translatePredicate(path2, '$eq', p[attr]));
                         }
                         else {
                             translatePredicateInner(p[attr], path2, fns2);
