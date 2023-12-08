@@ -561,7 +561,7 @@ export default class TreeStore extends CascadeStore {
                         const attr2 = attr.startsWith('.') ? attr.slice(1) : attr;
                         const path2 = path ? `${path}.${attr2}` : attr2;
                         if (typeof p[attr] !== 'object') {
-                            fns2.push(this.translatePredicate(path2, '$eq', filter[attr]));
+                            fns2.push(this.translatePredicate(path2, '$eq', p[attr]));
                         }
                         else {
                             translatePredicateInner(p[attr], path2, fns2);
