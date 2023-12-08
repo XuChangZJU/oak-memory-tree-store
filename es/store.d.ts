@@ -104,8 +104,9 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
     };
     beginSync(): string;
     private commitCallbacks;
-    onCommit(callback: (result: OperationResult<ED>) => void): () => ((result: OperationResult<ED>) => void)[];
+    onCommit(callback: (result: OperationResult<ED>) => Promise<void>): () => ((result: OperationResult<ED>) => Promise<void>)[];
     private addToOperationResult;
+    private commitLogic;
     commitSync(uuid: string): void;
     rollbackSync(uuid: string): void;
     beginAsync(): Promise<string>;
