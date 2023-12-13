@@ -582,6 +582,12 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                     return ['number', 'string'].includes(typeof data) && data >= value[0] && data <= value[1] || obscurePass(data, option);
                 };
             }
+            case '$mod': {
+                return (row) => {
+                    const data = get(row, path);
+                    return typeof data === 'number' && data % value[0] === value[1] || obscurePass(data, option);
+                };
+            }
             case '$startsWith': {
                 return (row) => {
                     const data = get(row, path);
@@ -1895,7 +1901,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         return result;
     }
 
-    protected aggregateSync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends SyncContext<ED>>(
+    protected aggregateAbjointRowSync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends SyncContext<ED>>(
         entity: T,
         aggregation: ED[T]['Aggregation'],
         context: Cxt,
@@ -1926,7 +1932,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         return this.formAggregation(entity, result, aggregation.data);
     }
 
-    protected async aggregateAsync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends AsyncContext<ED>>(
+    protected async aggregateAbjointRowAsync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends AsyncContext<ED>>(
         entity: T,
         aggregation: ED[T]['Aggregation'],
         context: Cxt,

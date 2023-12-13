@@ -445,6 +445,12 @@ export default class TreeStore extends CascadeStore {
                     return ['number', 'string'].includes(typeof data) && data >= value[0] && data <= value[1] || obscurePass(data, option);
                 };
             }
+            case '$mod': {
+                return (row) => {
+                    const data = get(row, path);
+                    return typeof data === 'number' && data % value[0] === value[1] || obscurePass(data, option);
+                };
+            }
             case '$startsWith': {
                 return (row) => {
                     const data = get(row, path);
@@ -1583,7 +1589,7 @@ export default class TreeStore extends CascadeStore {
         result.forEach((ele) => this.formExprInResult(entity, selection.data, ele, {}, context));
         return result;
     }
-    aggregateSync(entity, aggregation, context, option) {
+    aggregateAbjointRowSync(entity, aggregation, context, option) {
         assert(context.getCurrentTxnId());
         const { data, filter, sorter, indexFrom, count } = aggregation;
         const p = {};
@@ -1605,7 +1611,7 @@ export default class TreeStore extends CascadeStore {
         // 最后计算Aggregation
         return this.formAggregation(entity, result, aggregation.data);
     }
-    async aggregateAsync(entity, aggregation, context, option) {
+    async aggregateAbjointRowAsync(entity, aggregation, context, option) {
         assert(context.getCurrentTxnId());
         const { data, filter, sorter, indexFrom, count } = aggregation;
         const p = {};
