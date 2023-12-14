@@ -6,7 +6,8 @@
         "name": "XuChang"
     },
     "files": [
-        "lib/**/*"
+        "lib/**/*",
+        "es/**/*"
     ],
     "dependencies": {
         "oak-domain": "file:../oak-domain",
