@@ -1,5 +1,5 @@
 import {
-    cloneDeep, get, groupBy, set, unset,
+    cloneDeep, get, groupBy, set, unset, uniqBy, uniq,
     differenceBy, intersectionBy, pull, pick
 } from 'oak-domain/lib/utils/lodash';
 import { assert } from 'oak-domain/lib/utils/assert';
@@ -1604,7 +1604,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         }
 
         // 先计算projection，formResult只处理abjoint的行，不需要考虑expression和一对多多对一关系
-        const rows2: Array<Partial<ED[T]['Schema']>> = [];
+        let rows2: Array<Partial<ED[T]['Schema']>> = [];
         const incompletedRowIds: string[] = [];
         const { data: projection } = selection;
         for (const row of rows) {
@@ -1660,21 +1660,23 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 }
             }
             // 这三个属性在前台cache中可能表达特殊语义的，需要返回
-            if (row[DeleteAtAttribute]) {
-                Object.assign(result, {
-                    [DeleteAtAttribute]: row[DeleteAtAttribute],
-                });
-            }
-            if (row[UpdateAtAttribute]) {
-                Object.assign(result, {
-                    [UpdateAtAttribute]: row[UpdateAtAttribute],
-                });
-            }
-            if (row[CreateAtAttribute]) {
-                Object.assign(result, {
-                    [CreateAtAttribute]: row[CreateAtAttribute],
-                });
-
+            if (!selection.distinct) {
+                if (row[DeleteAtAttribute]) {
+                    Object.assign(result, {
+                        [DeleteAtAttribute]: row[DeleteAtAttribute],
+                    });
+                }
+                if (row[UpdateAtAttribute]) {
+                    Object.assign(result, {
+                        [UpdateAtAttribute]: row[UpdateAtAttribute],
+                    });
+                }
+                if (row[CreateAtAttribute]) {
+                    Object.assign(result, {
+                        [CreateAtAttribute]: row[CreateAtAttribute],
+                    });
+    
+                }
             }
             rows2.push(result);
         }
@@ -1708,13 +1710,17 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
             rows2.sort(sorterFn);
         }
 
-        // 最后用indexFrom和count来截断
+        // 用indexFrom和count来截断
         if (typeof indexFrom === 'number') {
-            return rows2.slice(indexFrom, indexFrom! + count!);
+            rows2 = rows2.slice(indexFrom, indexFrom! + count!);
         }
-        else {
-            return rows2;
+
+        // 如果有distinct再计算distinct
+        if (selection.distinct) {
+            rows2 = uniqBy(rows2, (ele) => JSON.stringify(ele));
         }
+
+        return rows2;
     }
 
     /**
@@ -1775,14 +1781,21 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         aggregationData: ED[T]['Aggregation']['data']
     ) {
         const ops = Object.keys(aggregationData).filter(
-            ele => ele !== '#aggr'
+            ele => ele !== '#aggr' && ele.startsWith('#')
         ) as AggregationOp[];
         const result = {} as Record<string, any>;
+        const results = {} as Record<string, any[]>;
         for (const row of rows) {
             for (const op of ops) {
                 const { values } = this.mappingProjectionOnRow(entity, row, (aggregationData as any)[op]);
                 assert(values.length === 1, `聚合运算中，${op}的目标属性多于1个`);
-                if (op.startsWith('#max')) {
+                if (results[op]) {
+                    results[op].push(values[0]);
+                }
+                else {
+                    results[op] = [values[0]];
+                }
+                /* if (op.startsWith('#max')) {
                     if (![undefined, null].includes(values[0]) && (!result.hasOwnProperty(op) || result[op] < values[0])) {
                         result[op] = values[0];
                     }
@@ -1828,21 +1841,64 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                             result[op].count += 1;
                         }
                     }
-
-                }
+                } */
             }
         }
-        for (const op of ops) {
-            if (!result[op]) {
-                if (op.startsWith('#count')) {
-                    result[op] = 0;
-                }
-                else {
-                    result[op] = null;
-                }
+        const { distinct } = aggregationData;
+        for (const op in results) {
+            if (op.startsWith('#max')) {
+                result[op] = null;
+                results[op].forEach(
+                    (ele) => {
+                        if (![undefined, null].includes(ele) && (result[op] === null || result[op] < ele)) {
+                            result[op] = ele;
+                        }
+                    }
+                );
+            }
+            else if (op.startsWith('#min')) {
+                result[op] = null;
+                results[op].forEach(
+                    (ele) => {
+                        if (![undefined, null].includes(ele) && (result[op] === null || result[op] > ele)) {
+                            result[op] = ele;
+                        }
+                    }
+                );
+            }
+            else if (op.startsWith('#sum')) {
+                result[op] = 0;
+                const data = distinct ? uniq(results[op]) : results[op];
+                data.forEach(
+                    (ele) => {
+                        assert(typeof ele === 'number', '只有number类型的属性才可以计算sum');
+                        result[op] += ele;
+                    }
+                );
+            }
+            else if (op.startsWith('#count')) {
+                result[op] = 0;
+                const data = distinct ? uniq(results[op]) : results[op];
+                data.forEach(
+                    (ele) => {
+                        if (![undefined, null].includes(ele)) {
+                            result[op] += 1;
+                        }
+                    }
+                );
             }
             else if (op.startsWith('#avg')) {
-                result[op] = result[op].total / result[op].count;
+                result[op] = 0;
+                const data = (distinct ? uniq(results[op]) : results[op]).filter(
+                    ele => ![undefined, null].includes(ele)
+                );
+                data.forEach(
+                    (ele) => {
+                        assert(typeof ele === 'number', '只有number类型的属性才可以计算avg');
+                        result[op] += ele;
+                    }
+                );
+                result[op] = result[op]/data.length;
             }
         }
         return result as AggregationResult<ED[T]['Schema']>[number];
