@@ -172,6 +172,19 @@ describe('基础测试', function () {
             },
         }, context, {});
         assert(modeEntities4.length === 1);
+
+        const modeEntities5 = store.select('modiEntity', {
+            data: {
+                entity: 1,
+            },
+            filter: {
+                id: {
+                    $in: [id1, id2],
+                },
+            },
+            distinct: true
+        }, context, {});
+        // console.log(modeEntities5);
         context.commit();
     });
 
@@ -831,7 +844,19 @@ describe('基础测试', function () {
                 }
             },
         }, context, {});
-        console.log(result);
+        // console.log(result);
+
+        // distinct
+        const result2 = store.aggregate('modiEntity', {
+            data: {
+                '#count-1': {
+                    entity: 1,
+                },
+                distinct: true,
+            },
+        }, context, {});
+
+        console.log(result2);
         context.commit();
     });
 
@@ -1293,7 +1318,29 @@ describe('基础测试', function () {
             },
         }, context, {});
 
+        const rows2 = store.select('oper', {
+            data: {
+                id: 1,
+            },
+            filter: {
+                id,
+                data: {
+                    '.$or': [
+                        {
+                            name: 'xc',
+                        },
+                        {
+                            name: {
+                                '.$includes': 'xc',
+                            }
+                        }
+                    ],
+                },
+            },
+        }, context, {});
+
         assert(rows1.length === 1);
+        assert(rows2.length === 1);
         context.commit();
     });
 });
