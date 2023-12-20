@@ -1676,24 +1676,24 @@ export default class TreeStore extends CascadeStore {
         // 最后计算Aggregation
         return this.formAggregation(entity, result, aggregation.data);
     }
-    countSync(entity, selection, context, option) {
+    countAbjointRow(entity, selection, context, option) {
         const selection2 = Object.assign({}, selection, {
             data: {
                 id: 1,
             },
         });
-        const result = this.selectSync(entity, selection2, context, Object.assign({}, option, {
+        const result = this.selectAbjointRow(entity, selection2, context, Object.assign({}, option, {
             dontCollect: true,
         }));
         return typeof selection.count === 'number' ? Math.min(result.length, selection.count) : result.length;
     }
-    async countAsync(entity, selection, context, option) {
+    async countAbjointRowAsync(entity, selection, context, option) {
         const selection2 = Object.assign({}, selection, {
             data: {
                 id: 1,
             },
         });
-        const result = await this.selectAsync(entity, selection2, context, Object.assign({}, option, {
+        const result = await this.countAbjointRowAsync(entity, selection2, context, Object.assign({}, option, {
             dontCollect: true,
         }));
         return typeof selection.count === 'number' && selection.count > 0 ? Math.min(result.length, selection.count) : result.length;

@@ -2019,7 +2019,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
         return this.formAggregation(entity, result, aggregation.data);
     }
 
-    protected countSync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends SyncContext<ED>>(
+    protected countAbjointRow<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends SyncContext<ED>>(
         entity: T,
         selection: Pick<ED[T]['Selection'], 'filter' | 'count'>,
         context: Cxt, option: OP): number {
@@ -2028,14 +2028,14 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 id: 1,
             },
         });
-        const result = this.selectSync(entity, selection2, context, Object.assign({}, option, {
+        const result = this.selectAbjointRow(entity, selection2, context, Object.assign({}, option, {
             dontCollect: true,
         }));
 
         return typeof selection.count === 'number' ? Math.min(result.length, selection.count) : result.length;
     }
 
-    protected async countAsync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends AsyncContext<ED>>(
+    protected async countAbjointRowAsync<T extends keyof ED, OP extends TreeStoreSelectOption, Cxt extends AsyncContext<ED>>(
         entity: T,
         selection: Pick<ED[T]['Selection'], 'filter' | 'count'>,
         context: Cxt, option: OP) {
@@ -2044,7 +2044,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 id: 1,
             },
         });
-        const result = await this.selectAsync(entity, selection2, context, Object.assign({}, option, {
+        const result = await this.countAbjointRowAsync(entity, selection2, context, Object.assign({}, option, {
             dontCollect: true,
         }));
 
