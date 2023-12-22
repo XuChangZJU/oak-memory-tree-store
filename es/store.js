@@ -1693,7 +1693,7 @@ export default class TreeStore extends CascadeStore {
                 id: 1,
             },
         });
-        const result = await this.countAbjointRowAsync(entity, selection2, context, Object.assign({}, option, {
+        const result = await this.selectAbjointRowAsync(entity, selection2, context, Object.assign({}, option, {
             dontCollect: true,
         }));
         return typeof selection.count === 'number' && selection.count > 0 ? Math.min(result.length, selection.count) : result.length;

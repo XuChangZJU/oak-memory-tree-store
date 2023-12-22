@@ -2044,7 +2044,7 @@ export default class TreeStore<ED extends EntityDict & BaseEntityDict> extends C
                 id: 1,
             },
         });
-        const result = await this.countAbjointRowAsync(entity, selection2, context, Object.assign({}, option, {
+        const result = await this.selectAbjointRowAsync(entity, selection2, context, Object.assign({}, option, {
             dontCollect: true,
         }));
 
