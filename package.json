@@ -10,7 +10,7 @@
         "es/**/*"
     ],
     "dependencies": {
-        "oak-domain": "file:../oak-domain",
+        "oak-domain": "^4.0.2",
         "uuid": "^8.3.2"
     },
     "scripts": {
