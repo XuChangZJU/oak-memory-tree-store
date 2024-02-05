@@ -693,7 +693,8 @@ export default class TreeStore extends CascadeStore {
                             return true;
                         }
                         if (row.entityId === undefined || row.entity === undefined) {
-                            assert(typeof projection[attr] === 'object');
+                            // 这个assert在count的情况下不满足   by Xc 20240205
+                            // assert(typeof projection[attr] === 'object');
                             if (option?.ignoreAttrMiss) {
                                 if (process.env.NODE_ENV === 'development') {
                                     console.warn(`对象${entity}上的entity/entityId不能确定值，可能会影响判定结果`);
