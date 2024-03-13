@@ -13,7 +13,7 @@ export class FrontendRuntimeContext extends SyncContext<EntityDict> {
     getCurrentUserId(allowUnloggedIn?: boolean | undefined): string | undefined {
         return 'OAK_ROOT_ID';
     }
-    toString(): string {
+    async toString(): Promise<string> {
         throw new Error("Method not implemented.");
     }
     allowUserUpdate(): boolean {
