@@ -1264,6 +1264,44 @@ describe('基础测试', function () {
             }
         }, context, {});
 
+        /**
+         * object 的 $exists查询
+         */
+        const row10 =  store.select('oper', {
+            data: {
+                id: 1,
+                data: {
+                    name: 1,
+                    price: 1,
+                },
+            },
+            filter: {
+                id,
+                action: 'test',
+                targetEntity: 'bbb',
+                data: {
+                    $exists: true,
+                }
+            }
+        }, context, {});
+        const row11 =  store.select('oper', {
+            data: {
+                id: 1,
+                data: {
+                    name: 1,
+                    price: 1,
+                },
+            },
+            filter: {
+                id,
+                action: 'test',
+                targetEntity: 'bbb',
+                data: {
+                    $exists: false,
+                }
+            }
+        }, context, {});
+
         context.commit();
         assert(row.length === 1);
         assert(row2.length === 0);
@@ -1274,6 +1312,8 @@ describe('基础测试', function () {
         assert(row7.length === 1);
         assert(row8.length === 1);
         assert(row9.length === 1);
+        assert(row10.length === 1);
+        assert(row11.length === 0);
         // console.log(JSON.stringify(row7));
     });
 

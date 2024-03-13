@@ -405,74 +405,86 @@ export default class TreeStore extends CascadeStore {
         switch (predicate) {
             case '$gt': {
                 return (row) => {
-                    const data = get(row, path);
+                    // JsonFilter有可能是根结点，path为空
+                    const data = path ? get(row, path) : row;
                     return ['number', 'string'].includes(typeof data) && data > value || obscurePass(data, option);
                 };
             }
             case '$lt': {
                 return (row) => {
-                    const data = get(row, path);
+                    // JsonFilter有可能是根结点，path为空
+                    const data = path ? get(row, path) : row;
                     return ['number', 'string'].includes(typeof data) && data < value || obscurePass(data, option);
                 };
             }
             case '$gte': {
                 return (row) => {
-                    const data = get(row, path);
+                    // JsonFilter有可能是根结点，path为空
+                    const data = path ? get(row, path) : row;
                     return ['number', 'string'].includes(typeof data) && data >= value || obscurePass(data, option);
                 };
             }
             case '$lte': {
                 return (row) => {
-                    const data = get(row, path);
+                    // JsonFilter有可能是根结点，path为空
+                    const data = path ? get(row, path) : row;
                     return ['number', 'string'].includes(typeof data) && data <= value || obscurePass(data, option);
                 };
             }
             case '$eq': {
                 return (row) => {
-                    const data = get(row, path);
+                    // JsonFilter有可能是根结点，path为空
+                    const data = path ? get(row, path) : row;
                     return ['number', 'string'].includes(typeof data) && data === value || obscurePass(data, option);
                 };
             }
             case '$ne': {
                 return (row) => {
-                    const data = get(row, path);
+                    // JsonFilter有可能是根结点，path为空
+                    const data = path ? get(row, path) : row;
                     return ['number', 'string'].includes(typeof data) && data !== value || obscurePass(data, option);
                 };
             }
             case '$between': {
                 return (row) => {
-                    const data = get(row, path);
+                    // JsonFilter有可能是根结点，path为空
+                    const data = path ? get(row, path) : row;
                     return ['number', 'string'].includes(typeof data) && data >= value[0] && data <= value[1] || obscurePass(data, option);
                 };
             }
             case '$mod': {
                 return (row) => {
-                    const data = get(row, path);
+                    // JsonFilter有可能是根结点，path为空
+                    const data = path ? get(row, path) : row;
                     return typeof data === 'number' && data % value[0] === value[1] || obscurePass(data, option);
                 };
             }
             case '$startsWith': {
                 return (row) => {
-                    const data = get(row, path);
+                    // JsonFilter有可能是根结点，path为空
+                    const data = path ? get(row, path) : row;
                     return ['string'].includes(typeof data) && data.startsWith(value) || obscurePass(data, option);
                 };
             }
             case '$endsWith': {
                 return (row) => {
-                    const data = get(row, path);
+                    // JsonFilter有可能是根结点，path为空
+                    const data = path ? get(row, path) : row;
                     return ['string'].includes(typeof data) && data.endsWith(value) || obscurePass(data, option);
                 };
             }
             case '$includes': {
                 return (row) => {
-                    const data = get(row, path);
+                    // JsonFilter有可能是根结点，path为空
+                    const data = path ? get(row, path) : row;
                     return ['string'].includes(typeof data) && data.includes(value) || obscurePass(data, option);
                 };
             }
             case '$exists': {
                 assert(typeof value === 'boolean');
                 return (row) => {
-                    const data = get(row, path);
+                    // JsonFilter有可能是根结点，path为空
+                    const data = path ? get(row, path) : row;
                     if (value) {
                         return ![null, undefined].includes(data) || obscurePass(data, option);
                     }
